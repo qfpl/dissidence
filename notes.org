@@ -1,0 +1,76 @@
+* TODO
+** Refactor into sub chat component                                :Frontend:
+** Wire up the Since Query param                           :Frontend:Backend:
+** User select to get a session key                        :Frontend:Backend:
+** Pure GameState Model + Tests                                     :Backend:
+*** Waiting for characters
+**** Waiting for minimum of 5 people before game can start
+*** Pregame
+**** Get dealt roles
+**** Side-effects Visibility round
+**** FP Expert Visibility round
+**** Leadership Choice
+*** Rounds
+**** Propose team
+**** Vote on team
+**** If successful, secret ballot on mission success, move leader, next round or move to end game if 3 wins for either side-effects or crusaders.
+**** If unsuccessful, move leader and retry
+*** End Game
+**** If Crusaders won game, Pointy Haired Boss fires someone . If FP Expert, side-effects win.
+** Proper build into a single haskell server that serves up the elm html. :Backend:
+** Setup instructions                                                  :Docs:
+** Cut into workshop                                                   :Docs:
+** Write Workshop Materials                                            :Docs:
+
+* TODO Maybe Later
+** PBSMT                                                            :Backend:
+** Fix servant-elm for 0.19                                         :Backend:
+** Nix setup for elm-live                                           :Tooling:
+
+* Questions
+** Where does the resource pattern come in if we're doing a CQRS style thingo with chat?
+** Should make API
+** A propery impl would be able to figure out when someone left a game
+
+* Reqs
+** Critical
+*** Elm 0.19 (cabal, nix, npm)
+*** Editor (vscode is really good)
+*** Access to a backend (docker, cabal run, Internet?)
+** Very Helpful
+*** Elm-live (npm)
+** Optional
+*** Elm-format (cabal install, nix, npm)
+
+* Workshop outline
+** Get setup. Make sure elm-live and backend is running / able to be talked to
+   Question: How do we verify things before there is code?
+** Explain the Rules of the Game
+** Chat Box
+*** Stub out a chat box display showing the chat lines
+    The code should have a test model already initialised.
+*** Write the chatbox form. Add a line to the model.
+*** Write a backend call to poll the chat on load
+*** Write the backend call to submit a new line then reload
+*** Write a periodic poller to get more chat lines
+** Refactor and Routing!
+*** Move chatbox into a subcomponent
+*** Move lobby into a home page route
+*** Write a login/register box to select user
+** Start Game / List Game
+   These are visible in the lobby once logged in
+*** Have a start game button that creates a game on the backend and redirects to a game ID
+*** Have a list game that will join you to the game and take you to the game page
+** Explain the backend that is setup and how it relates to the game.
+** Game State UI
+*** Include chat box component specific to game id
+*** Draw waiting for users UI
+*** Put a start game button on the page when 5 or more users are there that starts the game with the backend.
+*** Show user the role that they were dealt with an OK button to progress.
+*** Show side-effects visibility round to side-effects and the fp-expert with an OK button for each player to proceed.
+*** Game Board UI (Shows rounds, previous results, etc)
+*** Team Proposal UI
+*** Team Proposal Voting UI
+*** Mission Success Voting UI
+*** Firing Round
+*** Game end result UI

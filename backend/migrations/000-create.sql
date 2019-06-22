@@ -1,0 +1,6 @@
+CREATE TABLE chatlog
+  ( id SERIAL PRIMARY KEY NOT NULL
+  , time TIMESTAMP(3) NOT NULL DEFAULT now()
+  , msg  TEXT NOT NULL
+  , username VARCHAR(255) NOT NULL
+  );
