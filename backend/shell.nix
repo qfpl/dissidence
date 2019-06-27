@@ -3,5 +3,6 @@
   (with nixpkgs.pkgs ; [ 
     cabal-install
     haskellPackages.ghcid
+    haskellPackages.steeloverseer
   ])
 ).env

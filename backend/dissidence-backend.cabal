@@ -20,11 +20,13 @@ data-files:          migrations/*.sql
 
 library
   exposed-modules:   Game.Dissidence
+                   , Game.Dissidence.GameState
   other-modules:     Game.Dissidence.Config
                    , Game.Dissidence.Env
   build-depends:       base ^>=4.12.0.0
                      , aeson
                      , bytestring
+                     , containers
                      , dhall
                      , hasql
                      , hasql-pool
@@ -46,10 +48,15 @@ test-suite tests
   hs-source-dirs:      tests
   default-language:    Haskell2010
   type:                exitcode-stdio-1.0
-  main-is:             test.hs
+  main-is:             Main.hs
   build-depends:       base ^>=4.12.0.0
                      , dissidence-backend
+                     , containers
+                     , lens
+                     , generic-lens
                      , tasty
+                     , tasty-hunit
+                     , text
   
 
 executable backend

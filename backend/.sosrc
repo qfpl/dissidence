@@ -1,0 +1,4 @@
+- pattern: .*\.hs
+  exclude: dist*
+  commands:
+  - cabal new-test test:tests
