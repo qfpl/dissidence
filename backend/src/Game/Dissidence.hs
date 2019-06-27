@@ -92,9 +92,12 @@ runApp :: IO ()
 runApp = do
   c  <- load "./config" -- TODO: Opts for path
   e  <- configToEnv c
+  putStrLn "Loading and applying any DB migrations"
   ms <- loadMigrationsFromDirectory $ "./migrations/"
   mRes <- fmap (fmap (^? traverse . _Just)) . runTransaction e . traverse runMigration $ MigrationInitialization : ms
   case mRes of
     Left ue         -> error $ "Error running migrations: " <> show ue
     Right (Just me) -> error $ "Error running migrations: " <> show me
-    Right Nothing   -> run 8001 (app e)
+    Right Nothing   -> do
+      putStrLn "Starting server on port 8001"
+      run 8001 (app e)
