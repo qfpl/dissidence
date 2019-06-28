@@ -34,6 +34,8 @@ library
                      , hasql-migration
                      , generic-lens
                      , lens
+                     , random-extras
+                     , rvar
                      , servant
                      , servant-elm
                      , servant-server
@@ -45,19 +47,20 @@ library
   default-language:    Haskell2010
 
 test-suite tests
-  hs-source-dirs:      tests
-  default-language:    Haskell2010
   type:                exitcode-stdio-1.0
   main-is:             Main.hs
   build-depends:       base ^>=4.12.0.0
                      , dissidence-backend
                      , containers
-                     , lens
                      , generic-lens
+                     , mtl
+                     , lens
+                     , random-source
+                     , text
                      , tasty
                      , tasty-hunit
-                     , text
-  
+  hs-source-dirs:      tests
+  default-language:    Haskell2010
 
 executable backend
   main-is:             Main.hs
