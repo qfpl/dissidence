@@ -14,6 +14,7 @@ import Data.Text (Text)
 
 newtype PlayerId = PlayerId { unPlayerId :: Natural } deriving (Eq, Ord, Show, Generic)
 
+
 data Player = Player 
   { playerId :: PlayerId
   , playerName :: Text 
@@ -43,6 +44,7 @@ data GameState
     | Rounds RoundState 
     | FiringRound 
     | Complete EndCondition
+    | Aborted PlayerId
     deriving (Eq, Show, Generic)
 
 data VotingResult = VotingResult
@@ -60,14 +62,14 @@ data RoundState = RoundState
 -- We can't just ship these to the UI
 data GameStateInputEvent 
     = AddPlayer Player 
-    | RemovePlayer Player
+    | RemovePlayer PlayerId
     | GameStart PlayerId
     | ConfirmOk PlayerId
     | ProposeTeam (Set PlayerId)
     | VoteOnTeam PlayerId Bool
     | VoteOnProject PlayerId Bool
     | FirePlayer PlayerId
-    | GameQuit PlayerId
+    | AbortGame PlayerId
     deriving (Eq, Show, Generic)
 
 -- These are the bits where the game decides some kind of random event 
@@ -81,7 +83,7 @@ data GameStateInternalEvent
 -- based on the player before sending them out. 
 data GameStateOutputEvent 
     = PlayerAdded Player
-    | PlayerRemoved Player
+    | PlayerRemoved PlayerId
     | PregameStart (Map PlayerId Role)
     | InitialLeader Player
     | ProposedTeam (Set Player)
@@ -91,17 +93,26 @@ data GameStateOutputEvent
     | ThreeSuccessfulProjects
     | PlayerFired Player
     | GameEnded EndCondition
+    | GameAborted PlayerId
     deriving (Eq, Show, Generic)
+
+data GameStateInputError
+  = GameIsFull
+  | GameOwnerCannotLeave
+  | InvalidActionForGameState
+  deriving (Eq, Show, Generic)
 
 inputEvent 
   :: GameState 
   -> GameStateInputEvent 
-  -> Either Text (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
+  -> Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
 inputEvent gs ev = case gs of 
   WaitingForPlayers o ps -> case ev of 
     AddPlayer p@(Player pId pName) -> 
-      if Map.member pId ps || (o ^. field @"playerId") == pId
-      then Right (gs, Nothing, Nothing) 
+      if Map.member pId ps || (o ^. field @"playerId") == pId then Right (gs, Nothing, Nothing) 
+      else if Map.size ps >= 9 then Left GameIsFull
       else Right (WaitingForPlayers o (Map.insert pId pName ps), Nothing, Just $ PlayerAdded p)
-    _ -> undefined
-  _ -> undefined
+    RemovePlayer  pId -> 
+      if (o ^. field @"playerId") == pId then Left GameOwnerCannotLeave
+      else Right (WaitingForPlayers o (Map.delete pId ps), Nothing, Just $ PlayerRemoved pId)
+    _ -> Left InvalidActionForGameState
