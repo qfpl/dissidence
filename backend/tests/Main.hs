@@ -13,7 +13,7 @@ import Data.Text (Text, pack)
 import Numeric.Natural (Natural)
 import Data.Generics.Product (field)
 import Data.Generics.Sum (_As)
-import Data.Random.Source.PureMT (pureMT)
+import Data.Random.Source.StdGen (mkStdGen)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -68,6 +68,22 @@ tests = testGroup "inputEvent" $
                         (WaitingForPlayers player1 (playersToMap (take 9 players)))
                         (StartGame (PlayerId i))
                         (Left OwnerMustStartGame)
+            , testCase "Owner starts game" $
+                let expectedRoles = Map.fromList . zipPlayersRoles (player1 : players) $ 
+                        [ CompositionalCrusaders Nothing
+                        , SneakySideEffects Nothing 
+                        , SneakySideEffects (Just MiddleManager)
+                        , CompositionalCrusaders Nothing
+                        , CompositionalCrusaders (Just FPExpert)
+                        ]
+                in inputTest
+                    (WaitingForPlayers player1 (playersToMap (take 4 players)))
+                    (StartGame (PlayerId 1))
+                    (Right 
+                        (Pregame expectedRoles
+                        , Just $ AssignRoles ((^._2) <$> expectedRoles)
+                        , Just $ PregameStarted ((^._2) <$> expectedRoles)
+                        ))
             ]
         , testCase "AbortGame aborts game" $
             inputTest (WaitingForPlayers player1 Map.empty) (AbortGame (PlayerId 1))
@@ -98,7 +114,7 @@ tests = testGroup "inputEvent" $
     ]
   where 
     inputTest gs i e = do
-        out <- evalStateT (inputEvent gs i) (pureMT 1337)
+        out <- evalStateT (inputEvent gs i) (mkStdGen 1337)
         out @?= e
 
     playersToMap = Map.fromList . fmap (\p -> (p^.field @"playerId", p))
@@ -106,9 +122,8 @@ tests = testGroup "inputEvent" $
     players = (\i -> Player (PlayerId i) ("Player" <> (pack . show $ i))) <$> [2..]
     player2 = head players
     player11 = players !! 11
-    roles = Map.fromList 
-      . zipWith (\p@(Player pId _) r -> (pId,(p,r))) players 
-      $ playersToRoles Players5
+    roles = Map.fromList $ zipPlayersRoles players (playersToRoles Players5)
+    zipPlayersRoles = zipWith (\p@(Player pId _) r -> (pId,(p,r)))
     roundsState = initialRoundsState roles Players5
     everyInput = 
         [ AddPlayer player2

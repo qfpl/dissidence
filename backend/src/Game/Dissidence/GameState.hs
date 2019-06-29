@@ -141,7 +141,7 @@ inputEvent gs ev = case gs of
 
       StartGame pId -> 
           if (o ^. field @"playerId") /= pId then pure $ Left OwnerMustStartGame
-          else case (playersCount . Map.size $ ps) of
+          else case (playersCount . (+1) . Map.size $ ps) of
               Nothing -> pure $ Left NotEnoughPlayers
               Just pc -> do
                 roles <- sampleRVar . shuffle $ playersToRoles pc
@@ -166,12 +166,12 @@ inputEvent gs ev = case gs of
 -- Don't forget the owner! :)
 playersCount :: Int -> Maybe PlayersCount
 playersCount = \case 
-    4 -> Just Players5
-    5 -> Just Players6
-    6 -> Just Players7
-    7 -> Just Players8
-    8 -> Just Players9
-    9 -> Just Players10
+    5  -> Just Players5
+    6  -> Just Players6
+    7  -> Just Players7
+    8  -> Just Players8
+    9  -> Just Players9
+    10 -> Just Players10
     _ -> Nothing
 
 playersToRoles :: PlayersCount -> [Role]

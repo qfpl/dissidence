@@ -36,6 +36,8 @@ library
                      , lens
                      , random-extras
                      , rvar
+                     , random-fu
+                     , random-source
                      , servant
                      , servant-elm
                      , servant-server
