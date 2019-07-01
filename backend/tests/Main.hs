@@ -2,8 +2,9 @@
 
 import Control.Lens
 
+import Control.Monad.Except (ExceptT(ExceptT),runExceptT)
 import qualified Data.Map as Map
-import Data.Foldable (for_, or)
+import Data.Foldable (for_, or, foldrM)
 import Data.Monoid (Any(Any,getAny))
 import Control.Monad.State (evalStateT)
 import Data.List (inits)
@@ -69,18 +70,19 @@ tests = testGroup "inputEvent" $
                         (StartGame (PlayerId i))
                         (Left OwnerMustStartGame)
             , testCase "Owner starts game" $
+                -- This is set to our StdGen seed of 1337
                 let expectedRoles = Map.fromList . zipPlayersRoles (player1 : players) $ 
-                        [ CompositionalCrusaders Nothing
-                        , SneakySideEffects Nothing 
-                        , SneakySideEffects (Just MiddleManager)
+                        [ SneakySideEffects (Just MiddleManager)
                         , CompositionalCrusaders Nothing
+                        , SneakySideEffects Nothing 
                         , CompositionalCrusaders (Just FPExpert)
+                        , CompositionalCrusaders Nothing
                         ]
                 in inputTest
                     (WaitingForPlayers player1 (playersToMap (take 4 players)))
                     (StartGame (PlayerId 1))
                     (Right 
-                        (Pregame expectedRoles
+                        (Pregame ((\(p,r) -> (p,r,False)) <$> expectedRoles)
                         , Just $ AssignRoles ((^._2) <$> expectedRoles)
                         , Just $ PregameStarted ((^._2) <$> expectedRoles)
                         ))
@@ -100,7 +102,28 @@ tests = testGroup "inputEvent" $
                 inputTest (WaitingForPlayers player1 Map.empty) i (Left InvalidActionForGameState)
         ]
     , testGroup "Pregame" $ 
-        []
+        [ testCase "Confirming for player not in game errors" $
+            inputTest (Pregame roleConfirms) (ConfirmOk $ PlayerId 10)
+                (Left $ PlayerNotInGame)
+        , testCase "Confirming works" $ 
+            inputTest 
+                (Pregame roleConfirms) 
+                (ConfirmOk $ PlayerId 1)
+                (Right 
+                    ( Pregame (Map.adjust (_3 .~ True) (PlayerId 1) roleConfirms)
+                    , Nothing
+                    , Just $ PlayerConfirmed ))
+        , testCase "Confirming all players starts game" $ 
+            let testProg = foldrM 
+                    (\i (gs,_,_) -> ExceptT $ inputEvent gs (ConfirmOk (PlayerId i)) Nothing) 
+                    (Pregame roleConfirms, Nothing, Nothing) 
+                    [1..5]
+            in inputExpectation (runExceptT testProg) (Right 
+                ( Rounds roundsState
+                , Just $ AssignLeader (PlayerId 4)
+                , Just $ RoundsCommenced roundsState
+                ))
+        ]
     , testGroup "Round" $ 
         []
     , testGroup "FiringRound" $ 
@@ -113,8 +136,9 @@ tests = testGroup "inputEvent" $
         ]
     ]
   where 
-    inputTest gs i e = do
-        out <- evalStateT (inputEvent gs i) (mkStdGen 1337)
+    inputTest gs i = inputExpectation (inputEvent gs i Nothing)
+    inputExpectation prog e = do
+        out <- evalStateT prog (mkStdGen 1337)
         out @?= e
 
     playersToMap = Map.fromList . fmap (\p -> (p^.field @"playerId", p))
@@ -122,9 +146,10 @@ tests = testGroup "inputEvent" $
     players = (\i -> Player (PlayerId i) ("Player" <> (pack . show $ i))) <$> [2..]
     player2 = head players
     player11 = players !! 11
-    roles = Map.fromList $ zipPlayersRoles players (playersToRoles Players5)
+    roles = Map.fromList $ zipPlayersRoles (player1 : players) (playersToRoles Players5)
+    roleConfirms = (\(p,r) -> (p,r,False)) <$> roles
     zipPlayersRoles = zipWith (\p@(Player pId _) r -> (pId,(p,r)))
-    roundsState = initialRoundsState roles Players5
+    roundsState = initialRoundsState roles (PlayerId 4) Players5
     everyInput = 
         [ AddPlayer player2
         , RemovePlayer (PlayerId 2)
@@ -138,7 +163,7 @@ tests = testGroup "inputEvent" $
         ]
     everyState = 
         [ WaitingForPlayers player1 Map.empty
-        , Pregame roles
+        , Pregame roleConfirms
         , Rounds roundsState
         , FiringRound roles
         , Complete CrusadersWin

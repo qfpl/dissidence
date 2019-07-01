@@ -34,6 +34,7 @@ library
                      , hasql-migration
                      , generic-lens
                      , lens
+                     , mtl
                      , random-extras
                      , rvar
                      , random-fu
