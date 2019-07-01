@@ -1,45 +1,45 @@
-{-# LANGUAGE DeriveGeneric, OverloadedStrings, TypeApplications, DataKinds, LambdaCase #-}
+{-# LANGUAGE DataKinds, DeriveGeneric, LambdaCase, OverloadedStrings, TypeApplications #-}
 module Game.Dissidence.GameState where
 
 -- See https://www.ultraboardgames.com/avalon/game-rules.php for deets
 
 import Control.Lens
 
-import GHC.Generics (Generic)
-import Data.Generics.Product (field)
-import Data.Generics.Sum (_As)
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.RVar (MonadRandom, sampleRVar)
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Data.Random.List (shuffle, randomElement)
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NEL
-import Numeric.Natural (Natural)
-import Data.Text (Text)
-import Data.Foldable (and)
-import Control.Monad.Trans (lift)
-import Control.Monad.Except (runExceptT, throwError)
+import           Control.Monad.Except  (runExceptT, throwError)
+import           Control.Monad.Trans   (lift)
+import           Data.Foldable         (and)
+import           Data.Generics.Product (field)
+import           Data.Generics.Sum     (_As)
+import           Data.List.NonEmpty    (NonEmpty)
+import qualified Data.List.NonEmpty    as NEL
+import           Data.Map              (Map)
+import qualified Data.Map              as Map
+import           Data.Random.List      (randomElement, shuffle)
+import           Data.RVar             (MonadRandom, sampleRVar)
+import           Data.Set              (Set)
+import qualified Data.Set              as Set
+import           Data.Text             (Text)
+import           GHC.Generics          (Generic)
+import           Numeric.Natural       (Natural)
 
 newtype PlayerId = PlayerId { unPlayerId :: Natural } deriving (Eq, Ord, Show, Generic)
 
 type RolesMap = Map PlayerId (Player, Role)
 
-data Player = Player 
-  { playerId :: PlayerId
-  , playerName :: Text 
+data Player = Player
+  { playerId   :: PlayerId
+  , playerName :: Text
   } deriving (Eq, Ord, Show, Generic)
 
 data CrusaderRole = FPExpert deriving (Eq, Ord, Show, Generic)
 data SideEffectRole = MiddleManager deriving (Eq, Ord, Show, Generic)
 
-data Role 
-   = CompositionalCrusaders (Maybe CrusaderRole) 
-   | SneakySideEffects (Maybe SideEffectRole) 
+data Role
+   = CompositionalCrusaders (Maybe CrusaderRole)
+   | SneakySideEffects (Maybe SideEffectRole)
    deriving (Eq, Ord, Show, Generic)
 
-data PlayersCount = Players5 | Players6 | Players7 | Players8 | Players9 | Players10 
+data PlayersCount = Players5 | Players6 | Players7 | Players8 | Players9 | Players10
   deriving (Eq, Show, Generic)
 
 data Round = Round1 | Round2 | Round3 | Round4 | Round5 deriving (Eq, Show, Generic)
@@ -52,14 +52,14 @@ data SideEffectWinCondition = FPExpertFired | ThreeFailedProjects | FiveTeamsVet
 data EndCondition = CrusadersWin | SideEffectsWin SideEffectWinCondition | GameCancelled
   deriving (Eq, Show, Generic)
 
-data GameState 
-    = WaitingForPlayers Player (Map PlayerId Player)
-    | Pregame (Map PlayerId (Player,Role,Bool))
-    | Rounds RoundsState
-    | FiringRound RolesMap
-    | Complete EndCondition
-    | Aborted PlayerId
-    deriving (Eq, Show, Generic)
+data GameState
+  = WaitingForPlayers Player (Map PlayerId Player)
+  | Pregame (Map PlayerId (Player,Role,Bool))
+  | Rounds RoundsState
+  | FiringRound RolesMap
+  | Complete EndCondition
+  | Aborted PlayerId
+  deriving (Eq, Show, Generic)
 
 data RoundsState = RoundsState
   { roundsRoles       :: RolesMap
@@ -96,10 +96,10 @@ data RoundShape = RoundShape
   , roundShapeTwoFails :: Bool
   } deriving (Eq, Show, Generic)
 
--- These are the events given to us by the UI and the ones stored in the database. 
+-- These are the events given to us by the UI and the ones stored in the database.
 -- We can't just ship these to the UI
-data GameStateInputEvent 
-    = AddPlayer Player 
+data GameStateInputEvent
+    = AddPlayer Player
     | RemovePlayer PlayerId
     | StartGame PlayerId
     | ConfirmOk PlayerId
@@ -110,31 +110,31 @@ data GameStateInputEvent
     | AbortGame PlayerId
     deriving (Eq, Show, Generic)
 
--- These are the bits where the game decides some kind of random event 
-data GameStateInternalEvent 
-    = AssignRoles (Map PlayerId Role) 
-    | ShufflePlayerOrder (NonEmpty PlayerId)
-    deriving (Eq, Show, Generic)
+-- These are the bits where the game decides some kind of random event
+data GameStateInternalEvent
+  = AssignRoles (Map PlayerId Role)
+  | ShufflePlayerOrder (NonEmpty PlayerId)
+  deriving (Eq, Show, Generic)
 
 -- These are the events given back to the UI communicating the change that it needs to update.
--- Some of these events contain more information than a single player should get and need to be filtered 
--- based on the player before sending them out. 
-data GameStateOutputEvent 
-    = PlayerAdded Player
-    | PlayerRemoved PlayerId
-    | PregameStarted (Map PlayerId Role)
-    | PlayerConfirmed  -- Lets not say who because the timing could give away info
-    | RoundsCommenced RoundsState
-    | ProposedTeam (Set PlayerId)
-    | TeamApproved Natural
-    | TeamRejected Natural PlayerId
-    | NextRound Round Bool 
-    | ThreeSuccessfulProjects
-    | PlayerFired PlayerId
-    | GameEnded EndCondition
-    | GameAborted PlayerId
-    | GameCrashed
-    deriving (Eq, Show, Generic)
+-- Some of these events contain more information than a single player should get and need to be filtered
+-- based on the player before sending them out.
+data GameStateOutputEvent
+  = PlayerAdded Player
+  | PlayerRemoved PlayerId
+  | PregameStarted (Map PlayerId Role)
+  | PlayerConfirmed  -- Lets not say who because the timing could give away info
+  | RoundsCommenced RoundsState
+  | ProposedTeam (Set PlayerId)
+  | TeamApproved Natural
+  | TeamRejected Natural PlayerId
+  | NextRound Round Bool
+  | ThreeSuccessfulProjects
+  | PlayerFired PlayerId
+  | GameEnded EndCondition
+  | GameAborted PlayerId
+  | GameCrashed
+  deriving (Eq, Show, Generic)
 
 data GameStateInputError
   = GameIsFull
@@ -146,86 +146,85 @@ data GameStateInputError
   | GameStateTerminallyInvalid
   deriving (Eq, Show, Generic)
 
--- We have some non referentially transparent reactions to input events, so we need to 
--- store and replay a little more to recreate the view of the world. The idea is that 
--- the GameStateInternalEvents get serialised 
+-- We have some non referentially transparent reactions to input events, so we need to
+-- store and replay a little more to recreate the view of the world. The idea is that
+-- the GameStateInternalEvents get serialised
 inputEvent
-  :: MonadRandom m 
-  => GameState 
+  :: MonadRandom m
+  => GameState
   -> GameStateInputEvent
   -> Maybe GameStateInternalEvent
   -> m (Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent))
-inputEvent gs ev iEvMay = case gs of 
-  WaitingForPlayers o ps -> case ev of 
-      AddPlayer p@(Player pId pName) -> pure $
-          if Map.member pId ps || (o ^. field @"playerId") == pId then Right (gs, Nothing, Nothing) 
-          else if Map.size ps >= 9 then Left GameIsFull
-          else Right (WaitingForPlayers o (Map.insert pId p ps), Nothing, Just $ PlayerAdded p)
+inputEvent gs ev iEvMay = case gs of
+  WaitingForPlayers o ps -> case ev of
+    AddPlayer p@(Player pId pName) -> pure $
+      if Map.member pId ps || (o ^. field @"playerId") == pId then Right (gs, Nothing, Nothing)
+      else if Map.size ps >= 9 then Left GameIsFull
+      else Right (WaitingForPlayers o (Map.insert pId p ps), Nothing, Just $ PlayerAdded p)
 
-      RemovePlayer  pId -> pure $
-        if (o ^. field @"playerId") == pId then Left GameOwnerCannotLeave
-        else Right (WaitingForPlayers o (Map.delete pId ps), Nothing, Just $ PlayerRemoved pId)
+    RemovePlayer  pId -> pure $
+      if (o ^. field @"playerId") == pId then Left GameOwnerCannotLeave
+      else Right (WaitingForPlayers o (Map.delete pId ps), Nothing, Just $ PlayerRemoved pId)
 
-      StartGame pId -> 
-          if (o ^. field @"playerId") /= pId then pure $ Left OwnerMustStartGame
-          else
-            let allPlayersMap = Map.insert (o^. field @"playerId") o ps 
-            in case (playersCount . Map.size $ allPlayersMap) of
-              Nothing -> pure $ Left NotEnoughPlayers
-              Just pc -> do
-                rolesMap <- case iEvMay of 
-                  Just (AssignRoles rolesMap) -> pure rolesMap
-                  _ -> do 
-                    roles <- sampleRVar . shuffle $ playersToRoles pc
-                    pure . Map.fromList $ zipWith 
-                      (\p@(Player pId _) r -> (pId,r)) 
-                      (Map.elems allPlayersMap) 
-                      roles
-                
-                let rolesPlayerMap = Map.intersectionWith  
-                      (\p r -> (p,r,False)) 
-                      allPlayersMap 
-                      rolesMap
-                pure . Right $ 
-                  ( Pregame rolesPlayerMap
-                  , Just $ AssignRoles rolesMap
-                  , Just $ PregameStarted rolesMap
-                  )
+    StartGame pId ->
+      if (o ^. field @"playerId") /= pId then pure $ Left OwnerMustStartGame
+      else
+        let allPlayersMap = Map.insert (o^. field @"playerId") o ps
+        in case (playersCount . Map.size $ allPlayersMap) of
+          Nothing -> pure $ Left NotEnoughPlayers
+          Just pc -> do
+            rolesMap <- case iEvMay of
+              Just (AssignRoles rolesMap) -> pure rolesMap
+              _ -> do
+                roles <- sampleRVar . shuffle $ playersToRoles pc
+                pure . Map.fromList $ zipWith
+                  (\p@(Player pId _) r -> (pId,r))
+                  (Map.elems allPlayersMap)
+                  roles
 
-      AbortGame pId -> abortGame pId
+            let rolesPlayerMap = Map.intersectionWith
+                  (\p r -> (p,r,False))
+                  allPlayersMap
+                  rolesMap
+            pure . Right $
+              ( Pregame rolesPlayerMap
+              , Just $ AssignRoles rolesMap
+              , Just $ PregameStarted rolesMap
+              )
 
-      _ -> invalidAction
-  
+    AbortGame pId -> abortGame pId
+    _ -> invalidAction
+
   Pregame roleConfirms -> case ev of
     ConfirmOk pId ->
       if not (Map.member pId roleConfirms) then pure (Left PlayerNotInGame)
-      else 
+      else
         let newConfirms = roleConfirms & ix pId . _3 .~ True
-        in  
+        in
           if not (and ((^. _3) <$> newConfirms))
           then pure (Right (Pregame newConfirms, Nothing, Just PlayerConfirmed))
           else case (playersCount (Map.size newConfirms)) of
             Nothing   -> pure $ Left GameStateTerminallyInvalid
             (Just pc) -> runExceptT $ do
               order <- case iEvMay of
-                (Just (ShufflePlayerOrder nel)) -> 
+                (Just (ShufflePlayerOrder nel)) ->
                   if (NEL.toList nel) == (Map.keys roleConfirms)
                   then pure nel
                   else throwError GameStateTerminallyInvalid
-                _ -> 
+                _ ->
                   lift . fmap NEL.fromList $ sampleRVar (shuffle $ Map.keys newConfirms)
 
               let roles = (\(p,r,_) -> (p,r)) <$> newConfirms
               let roundsState = initialRoundsState roles order pc
-              pure 
+              pure
                 ( Rounds roundsState
                 , Just $ ShufflePlayerOrder order
                 , Just $ RoundsCommenced roundsState
                 )
-    
+
     AbortGame pId -> abortGame pId
     _ -> invalidAction
-    
+
   Rounds rs -> case ev of
     _ -> invalidAction
 
@@ -235,28 +234,28 @@ inputEvent gs ev iEvMay = case gs of
   Complete _ -> invalidAction
   Aborted _ -> invalidAction
 
-  where 
+  where
     abortGame pId = pure $ Right (Aborted pId, Nothing, Just $ GameAborted pId)
     invalidAction = pure . Left $ InvalidActionForGameState
 
 playersCount :: Int -> Maybe PlayersCount
-playersCount = \case 
-    5  -> Just Players5
-    6  -> Just Players6
-    7  -> Just Players7
-    8  -> Just Players8
-    9  -> Just Players9
-    10 -> Just Players10
-    _ -> Nothing
+playersCount = \case
+  5  -> Just Players5
+  6  -> Just Players6
+  7  -> Just Players7
+  8  -> Just Players8
+  9  -> Just Players9
+  10 -> Just Players10
+  _ -> Nothing
 
 playersCountToInt :: PlayersCount -> Int
 playersCountToInt = \case
-    Players5  -> 5
-    Players6  -> 6
-    Players7  -> 7
-    Players8  -> 8
-    Players9  -> 9
-    Players10 -> 10
+  Players5  -> 5
+  Players6  -> 6
+  Players7  -> 7
+  Players8  -> 8
+  Players9  -> 9
+  Players10 -> 10
 
 playersToRoles :: PlayersCount -> [Role]
 playersToRoles Players5 =
@@ -273,16 +272,16 @@ playersToRoles Players9 = CompositionalCrusaders Nothing : playersToRoles Player
 playersToRoles Players10 = SneakySideEffects Nothing : playersToRoles Players9
 
 initialRoundsState :: RolesMap -> NonEmpty PlayerId -> PlayersCount -> RoundsState
-initialRoundsState roles order = \case 
+initialRoundsState roles order = \case
   Players5  -> rss 2 3 2 3 3 False
   Players6  -> rss 2 3 4 3 4 False
   Players7  -> rss 2 3 3 4 4 True
   Players8  -> rss 3 4 4 5 5 True
   Players9  -> rss 3 4 4 5 5 True
   Players10 -> rss 3 4 4 5 5 True
-  where 
-    rss r1 r2 r3 r4 r5 b = RoundsState roles order 
-      (CurrentRoundState (rs r1 False) (NEL.head order) Nothing []) 
-      [(rs r2 False),(rs r3 False),(rs r4 b),(rs r5 False)] 
+  where
+    rss r1 r2 r3 r4 r5 b = RoundsState roles order
+      (CurrentRoundState (rs r1 False) (NEL.head order) Nothing [])
+      [(rs r2 False),(rs r3 False),(rs r4 b),(rs r5 False)]
       []
-    rs n b = RoundShape n b 
+    rs n b = RoundShape n b
