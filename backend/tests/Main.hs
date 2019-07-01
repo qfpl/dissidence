@@ -8,6 +8,7 @@ import Data.Foldable (for_, or, foldrM)
 import Data.Monoid (Any(Any,getAny))
 import Control.Monad.State (evalStateT)
 import Data.List (inits)
+import Data.List.NonEmpty (NonEmpty((:|)))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text, pack)
@@ -120,7 +121,7 @@ tests = testGroup "inputEvent" $
                     [1..5]
             in inputExpectation (runExceptT testProg) (Right 
                 ( Rounds roundsState
-                , Just $ AssignLeader (PlayerId 4)
+                , Just $ ShufflePlayerOrder playerOrder
                 , Just $ RoundsCommenced roundsState
                 ))
         ]
@@ -149,7 +150,8 @@ tests = testGroup "inputEvent" $
     roles = Map.fromList $ zipPlayersRoles (player1 : players) (playersToRoles Players5)
     roleConfirms = (\(p,r) -> (p,r,False)) <$> roles
     zipPlayersRoles = zipWith (\p@(Player pId _) r -> (pId,(p,r)))
-    roundsState = initialRoundsState roles (PlayerId 4) Players5
+    playerOrder = PlayerId <$> (2 :| [4,5,1,3])
+    roundsState = initialRoundsState roles playerOrder Players5
     everyInput = 
         [ AddPlayer player2
         , RemovePlayer (PlayerId 2)

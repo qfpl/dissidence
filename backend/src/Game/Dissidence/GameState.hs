@@ -14,6 +14,8 @@ import Data.RVar (MonadRandom, sampleRVar)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Random.List (shuffle, randomElement)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NEL
 import Numeric.Natural (Natural)
 import Data.Text (Text)
 import Data.Foldable (and)
@@ -60,14 +62,18 @@ data GameState
     deriving (Eq, Show, Generic)
 
 data RoundsState = RoundsState
-  { currentRound  :: Round
-  , currentLeader :: PlayerId
-  , roundsRoles   :: RolesMap
-  , round1        :: RoundState
-  , round2        :: RoundState
-  , round3        :: RoundState
-  , round4        :: RoundState
-  , round5        :: RoundState
+  { roundsRoles       :: RolesMap
+  , roundsPlayerOrder :: NonEmpty PlayerId
+  , currentRound      :: CurrentRoundState
+  , futureRounds      :: [RoundShape]
+  , historicRounds    :: [HistoricRoundState]
+  } deriving (Eq, Show, Generic)
+
+data CurrentRoundState = CurrentRoundState
+  { currentRoundShape        :: RoundShape
+  , currentRoundLeader       :: PlayerId
+  , currentRoundProposedTeam :: Maybe (Set PlayerId)
+  , currentRoundVotes        :: [VotingResult]
   } deriving (Eq, Show, Generic)
 
 data VotingResult = VotingResult
@@ -76,11 +82,18 @@ data VotingResult = VotingResult
   , votingResult     :: Map PlayerId Bool
   } deriving (Eq, Show, Generic)
 
-data RoundState = RoundState
-  { roundTeamSize    :: Natural
-  , requiresTwoFails :: Bool
-  , roundTeam        :: Maybe (Set PlayerId)
-  , roundVotes       :: [VotingResult]
+data RoundResult = RoundSuccess | RoundFail Natural | RoundNoConsensus deriving (Eq, Show, Generic)
+
+data HistoricRoundState = HistoricRoundState
+  { pastRoundShape  :: RoundShape
+  , pastRoundTeam   :: Set PlayerId
+  , pastRoundVotes  :: [VotingResult]
+  , pastRoundResult :: RoundResult
+  } deriving (Eq, Show, Generic)
+
+data RoundShape = RoundShape
+  { roundShapeTeamSize :: Natural
+  , roundShapeTwoFails :: Bool
   } deriving (Eq, Show, Generic)
 
 -- These are the events given to us by the UI and the ones stored in the database. 
@@ -100,7 +113,7 @@ data GameStateInputEvent
 -- These are the bits where the game decides some kind of random event 
 data GameStateInternalEvent 
     = AssignRoles (Map PlayerId Role) 
-    | AssignLeader PlayerId
+    | ShufflePlayerOrder (NonEmpty PlayerId)
     deriving (Eq, Show, Generic)
 
 -- These are the events given back to the UI communicating the change that it needs to update.
@@ -194,28 +207,34 @@ inputEvent gs ev iEvMay = case gs of
           else case (playersCount (Map.size newConfirms)) of
             Nothing   -> pure $ Left GameStateTerminallyInvalid
             (Just pc) -> runExceptT $ do
-              leader <- case iEvMay of
-                (Just (AssignLeader pId)) -> 
-                  if Map.member pId newConfirms 
-                  then pure pId
+              order <- case iEvMay of
+                (Just (ShufflePlayerOrder nel)) -> 
+                  if (NEL.toList nel) == (Map.keys roleConfirms)
+                  then pure nel
                   else throwError GameStateTerminallyInvalid
-                _ -> do
-                  pId <- lift $ sampleRVar (randomElement $ Map.keys newConfirms)
-                  pure pId
+                _ -> 
+                  lift . fmap NEL.fromList $ sampleRVar (shuffle $ Map.keys newConfirms)
 
               let roles = (\(p,r,_) -> (p,r)) <$> newConfirms
-              let roundsState = initialRoundsState roles leader pc
+              let roundsState = initialRoundsState roles order pc
               pure 
-                (Rounds roundsState
-                , Just $ AssignLeader (roundsState ^. field @"currentLeader")
+                ( Rounds roundsState
+                , Just $ ShufflePlayerOrder order
                 , Just $ RoundsCommenced roundsState
                 )
-
+    
     AbortGame pId -> abortGame pId
     _ -> invalidAction
     
+  Rounds rs -> case ev of
+    _ -> invalidAction
 
+  FiringRound rs -> case ev of
+    _ -> invalidAction
+
+  Complete _ -> invalidAction
   Aborted _ -> invalidAction
+
   where 
     abortGame pId = pure $ Right (Aborted pId, Nothing, Just $ GameAborted pId)
     invalidAction = pure . Left $ InvalidActionForGameState
@@ -253,8 +272,8 @@ playersToRoles Players8 = CompositionalCrusaders Nothing : playersToRoles Player
 playersToRoles Players9 = CompositionalCrusaders Nothing : playersToRoles Players8
 playersToRoles Players10 = SneakySideEffects Nothing : playersToRoles Players9
 
-initialRoundsState :: RolesMap -> PlayerId -> PlayersCount -> RoundsState
-initialRoundsState roles pId = \case 
+initialRoundsState :: RolesMap -> NonEmpty PlayerId -> PlayersCount -> RoundsState
+initialRoundsState roles order = \case 
   Players5  -> rss 2 3 2 3 3 False
   Players6  -> rss 2 3 4 3 4 False
   Players7  -> rss 2 3 3 4 4 True
@@ -262,6 +281,8 @@ initialRoundsState roles pId = \case
   Players9  -> rss 3 4 4 5 5 True
   Players10 -> rss 3 4 4 5 5 True
   where 
-    rss r1 r2 r3 r4 r5 b = 
-      RoundsState Round1 pId roles (rs r1 False) (rs r2 False) (rs r3 False) (rs r4 b) (rs r5 False)
-    rs n b = RoundState n b Nothing []
+    rss r1 r2 r3 r4 r5 b = RoundsState roles order 
+      (CurrentRoundState (rs r1 False) (NEL.head order) Nothing []) 
+      [(rs r2 False),(rs r3 False),(rs r4 b),(rs r5 False)] 
+      []
+    rs n b = RoundShape n b 
