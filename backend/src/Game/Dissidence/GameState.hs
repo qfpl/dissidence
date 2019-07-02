@@ -62,19 +62,17 @@ data GameState
   deriving (Eq, Show, Generic)
 
 data RoundsState = RoundsState
-  { roundsRoles       :: RolesMap
-  , roundsPlayerOrder :: NonEmpty PlayerId
-  , currentRound      :: CurrentRoundState
-  , futureRounds      :: [RoundShape]
-  , historicRounds    :: [HistoricRoundState]
+  { roundsRoles           :: RolesMap
+  , roundsPlayerOrder     :: NonEmpty PlayerId
+  , roundsCurrentShape    :: RoundShape
+  , roundsCurrentLeader   :: PlayerId
+  , roundsCurrentProposal :: ProposalState
+  , roundsCurrentVotes    :: [VotingResult]
+  , futureRounds          :: [RoundShape]
+  , historicRounds        :: [HistoricRoundState]
   } deriving (Eq, Show, Generic)
 
-data CurrentRoundState = CurrentRoundState
-  { currentRoundShape        :: RoundShape
-  , currentRoundLeader       :: PlayerId
-  , currentRoundProposedTeam :: Maybe (Set PlayerId)
-  , currentRoundVotes        :: [VotingResult]
-  } deriving (Eq, Show, Generic)
+data ProposalState = NoProposal | Proposed (Set PlayerId) | Approved (Set PlayerId) deriving (Eq, Show, Generic)
 
 data VotingResult = VotingResult
   { votingTeamLeader :: PlayerId
@@ -103,7 +101,7 @@ data GameStateInputEvent
     | RemovePlayer PlayerId
     | StartGame PlayerId
     | ConfirmOk PlayerId
-    | ProposeTeam (Set PlayerId)
+    | ProposeTeam PlayerId (Set PlayerId)
     | VoteOnTeam PlayerId Bool
     | VoteOnProject PlayerId Bool
     | FirePlayer PlayerId
@@ -125,7 +123,7 @@ data GameStateOutputEvent
   | PregameStarted (Map PlayerId Role)
   | PlayerConfirmed  -- Lets not say who because the timing could give away info
   | RoundsCommenced RoundsState
-  | ProposedTeam (Set PlayerId)
+  | TeamProposed (Set PlayerId)
   | TeamApproved Natural
   | TeamRejected Natural PlayerId
   | NextRound Round Bool
@@ -142,8 +140,10 @@ data GameStateInputError
   | InvalidActionForGameState
   | OwnerMustStartGame
   | NotEnoughPlayers
-  | PlayerNotInGame
+  | PlayerNotInGame PlayerId
   | GameStateTerminallyInvalid
+  | PlayerIsNotLeader
+  | IncorrectTeamSize
   deriving (Eq, Show, Generic)
 
 -- We have some non referentially transparent reactions to input events, so we need to
@@ -197,7 +197,7 @@ inputEvent gs ev iEvMay = case gs of
 
   Pregame roleConfirms -> case ev of
     ConfirmOk pId ->
-      if not (Map.member pId roleConfirms) then pure (Left PlayerNotInGame)
+      if not (Map.member pId roleConfirms) then pure (Left $ PlayerNotInGame pId)
       else
         let newConfirms = roleConfirms & ix pId . _3 .~ True
         in
@@ -225,8 +225,18 @@ inputEvent gs ev iEvMay = case gs of
     AbortGame pId -> abortGame pId
     _ -> invalidAction
 
-  Rounds rs -> case ev of
-    _ -> invalidAction
+  Rounds rs -> case (rs ^. field @"roundsCurrentProposal") of
+    NoProposal -> case ev of
+      ProposeTeam pId ps ->
+        if pId /= (rs ^. field @"roundsCurrentLeader") then pure $ Left PlayerIsNotLeader
+        else if (Set.size ps) /= rs ^. field @"roundsCurrentShape" . field @"roundShapeTeamSize" . to fromIntegral
+          then pure $ Left IncorrectTeamSize
+          else pure $ Right (Rounds (rs & field @"roundsCurrentProposal" .~ Proposed ps), Nothing, Just $ TeamProposed ps)
+      _ -> invalidAction
+    Proposed ps -> case ev of
+      _ -> invalidAction
+    Approved ps -> case ev of
+      _ -> invalidAction
 
   FiringRound rs -> case ev of
     _ -> invalidAction
@@ -280,8 +290,7 @@ initialRoundsState roles order = \case
   Players9  -> rss 3 4 4 5 5 True
   Players10 -> rss 3 4 4 5 5 True
   where
-    rss r1 r2 r3 r4 r5 b = RoundsState roles order
-      (CurrentRoundState (rs r1 False) (NEL.head order) Nothing [])
+    rss r1 r2 r3 r4 r5 b = RoundsState roles order (rs r1 False) (NEL.head order) NoProposal []
       [(rs r2 False),(rs r3 False),(rs r4 b),(rs r5 False)]
       []
     rs n b = RoundShape n b

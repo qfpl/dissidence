@@ -106,7 +106,7 @@ pregameTests :: TestTree
 pregameTests = testGroup "Pregame" $
   [ testCase "Confirming for player not in game errors" $
     inputTest (Pregame roleConfirms) (ConfirmOk $ PlayerId 10)
-      (Left $ PlayerNotInGame)
+      (Left $ PlayerNotInGame (PlayerId 10))
   , testCase "Confirming works" $
     inputTest
       (Pregame roleConfirms)
@@ -129,18 +129,41 @@ pregameTests = testGroup "Pregame" $
 
 roundsTests :: TestTree
 roundsTests = testGroup "Round" $
-  [ testGroup "Team Proposal"
-    [ testCase "Proposing Team works" $ error "todo"
-    , testCase "Proposing Team doesn't work for not leader" $ error "todo"
-    , testCase "Proposing Team doesn't work when team proposed or approved" $ error "todo"
+  let decentRound1Proposal = Set.fromList [PlayerId 4, PlayerId 1]
+      proposedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Proposed decentRound1Proposal)
+      approvedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Approved decentRound1Proposal)
+  in [ testGroup "Team Proposal" $
+    [ testCase "Proposing Team works" $
+      inputTest (Rounds roundsState) (ProposeTeam (PlayerId 2) decentRound1Proposal)
+        (Right (proposedState, Nothing, Just $ TeamProposed decentRound1Proposal))
+    , testCase "Proposing Team doesn't work for not leader" $
+      inputTest (Rounds roundsState) (ProposeTeam (PlayerId 1) (Set.fromList [PlayerId 1, PlayerId 2]))
+        (Left PlayerIsNotLeader)
+    , testCase "Proposing Team that is not the correct size errors" $
+      let playerIds = PlayerId <$> [1,2,3,4,5]
+      in for_ [0,1,3,4,5] $ \n ->
+        inputTest (Rounds roundsState) (ProposeTeam (PlayerId 2) (Set.fromList $ take n playerIds))
+          (Left IncorrectTeamSize)
+    , testCase "Proposing Team doesn't work when team proposed" $
+      inputTest
+        proposedState
+        (ProposeTeam (PlayerId 1) decentRound1Proposal)
+        (Left $ InvalidActionForGameState)
+    , testCase "Proposing Team doesn't work when team approved" $
+      inputTest
+        approvedState
+        (ProposeTeam (PlayerId 1) decentRound1Proposal)
+        (Left $ InvalidActionForGameState)
     ]
   , testGroup "Team Voting"
-    [ testCase "Voting works" $ error "todo"
+    [ testCase "Voting works" $
+      inputTest proposedState (VoteOnTeam (PlayerId 1) False)
+        (Right (proposedState,Nothing,Nothing))
     , testCase "Voting Twice Doesn't work" $ error "todo"
     , testGroup "Last vote concludes team proposal" $
-    [ testCase "Success moves to team proposal" $ error "todo"
-    , testCase "Fifth failure means Side-effects win" $ error "todo"
-    ]
+      [ testCase "Success moves to project vote" $ error "todo"
+      , testCase "Fifth failure means Side-effects win" $ error "todo"
+      ]
     , testCase "Voting doesn't work when team not-proposed or approved" $ error "todo"
     ]
   , testGroup "Project Voting"
@@ -202,7 +225,7 @@ everyInput =
   , RemovePlayer (PlayerId 2)
   , StartGame (PlayerId 2)
   , ConfirmOk (PlayerId 2)
-  , ProposeTeam (Set.fromList [PlayerId 1])
+  , ProposeTeam (PlayerId 1) (Set.fromList [PlayerId 1])
   , VoteOnTeam (PlayerId 2) True
   , VoteOnProject (PlayerId 2) True
   , FirePlayer (PlayerId 2)
