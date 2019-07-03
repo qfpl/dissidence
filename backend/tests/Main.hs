@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds, FlexibleContexts, OverloadedStrings, RankNTypes, TypeApplications #-}
+{-# LANGUAGE DataKinds, FlexibleContexts, OverloadedStrings, RankNTypes, TypeApplications, TupleSections #-}
 
 import Control.Lens
 
@@ -87,9 +87,6 @@ waitingForPlayersTests = testGroup "Waiting For Players" $
           , Just $ PregameStarted ((^._2) <$> expectedRoles)
         ))
     ]
-  , testCase "AbortGame aborts game" $
-    inputTest (WaitingForPlayers player1 Map.empty) (AbortGame (PlayerId 1))
-      (Right (Aborted (PlayerId 1), Nothing, Just $ GameAborted (PlayerId 1)))
 
   , testCase "Invalid Inputs are Rejected" $
     let validInput i = all ($ i)
@@ -117,21 +114,28 @@ pregameTests = testGroup "Pregame" $
         , Just $ PlayerConfirmed ))
   , testCase "Confirming all players starts game" $
     let testProg = foldrM
-          (\i (gs,_,_) -> ExceptT $ inputEvent gs (ConfirmOk (PlayerId i)) Nothing)
+          (\i (gs,_,_) -> inputEvent gs (ConfirmOk (PlayerId i)) Nothing)
           (Pregame roleConfirms, Nothing, Nothing)
           [1..5]
-    in inputExpectation (runExceptT testProg) (Right
+    in inputExpectation testProg (Right
       ( Rounds roundsState
       , Just $ ShufflePlayerOrder playerOrder
       , Just $ RoundsCommenced roundsState
       ))
+  , testCase "Invalid Inputs are Rejected" $
+    let validInput i = all ($ i)
+         [ isn't (_As @"ConfirmOk")
+         , isn't (_As @"AbortGame")
+         ]
+    in for_ (filter validInput everyInput) $ \i ->
+      inputTest (Pregame roleConfirms) i (Left InvalidActionForGameState)
   ]
 
 roundsTests :: TestTree
 roundsTests = testGroup "Round" $
   let decentRound1Proposal = Set.fromList [PlayerId 4, PlayerId 1]
-      proposedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Proposed decentRound1Proposal)
-      approvedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Approved decentRound1Proposal)
+      proposedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Proposed decentRound1Proposal Map.empty)
+      approvedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Approved decentRound1Proposal Map.empty)
   in [ testGroup "Team Proposal" $
     [ testCase "Proposing Team works" $
       inputTest (Rounds roundsState) (ProposeTeam (PlayerId 2) decentRound1Proposal)
@@ -158,7 +162,11 @@ roundsTests = testGroup "Round" $
   , testGroup "Team Voting"
     [ testCase "Voting works" $
       inputTest proposedState (VoteOnTeam (PlayerId 1) False)
-        (Right (proposedState,Nothing,Nothing))
+        (Right 
+          ( proposedState & _As @"Rounds".field @"roundsCurrentProposal"._As @"Proposed"._2. at (PlayerId 1) ?~ False
+          , Nothing
+          ,Nothing
+          ))
     , testCase "Voting Twice Doesn't work" $ error "todo"
     , testGroup "Last vote concludes team proposal" $
       [ testCase "Success moves to project vote" $ error "todo"
@@ -169,17 +177,27 @@ roundsTests = testGroup "Round" $
   , testGroup "Project Voting"
     [ testCase "Voting works" $ error "todo"
     , testCase "Voting Twice Doesn't work" $ error "todo"
+    , testCase "Only players in team can vote " $ error "todo"
     , testGroup "Last vote finalises round" $
-    [ testCase "All success makes crusaders win" $ error "todo"
-    , testCase "1 failure fails project on non 2 fail round" $ error "todo"
-    , testCase "1 failure succeeds project on 2 fail round" $ error "todo"
-    , testCase "2 failures fail project on a 2 fail round" $ error "todo"
-    , testCase "3rd Crusader win moves to firing round" $ error "todo"
-    , testCase "3rd Crusader win moves to side effects winning" $ error "todo"
-    ]
+      [ testCase "All success makes crusaders win" $ error "todo"
+      , testCase "1 failure fails project on non 2 fail round" $ error "todo"
+      , testCase "1 failure succeeds project on 2 fail round" $ error "todo"
+      , testCase "2 failures fail project on a 2 fail round" $ error "todo"
+      , testCase "3rd Crusader win moves to firing round" $ error "todo"
+      , testCase "3rd Crusader win moves to side effects winning" $ error "todo"
+      ]
     , testCase "Voting doesn't work when still in proposal" $ error "todo"
     ]
-  , testCase "Invalid inputs are rejected" $ error "todo"
+  , testCase "Invalid Inputs are Rejected" $
+    let validInput i = all ($ i)
+         [ isn't (_As @"ProposeTeam")
+         , isn't (_As @"VoteOnTeam")
+         , isn't (_As @"VoteOnProject")
+         , isn't (_As @"AbortGame")
+         ]
+    in for_ (filter validInput everyInput) $ \i ->
+        for_ [Rounds roundsState, proposedState, approvedState] $ \s ->
+          inputTest s i (Left InvalidActionForGameState)
   ]
 
 firingRoundTests :: TestTree
@@ -187,6 +205,13 @@ firingRoundTests = testGroup "FiringRound" $
   [ testCase "Players other than the middle manager can't vote" $ error "todo"
   , testCase "Middle manager fires FP manager. Side Effects Win" $ error "todo"
   , testCase "Middle manager fires Anyone Else. Crusaders Win" $ error "TODO"
+  , testCase "Invalid Inputs are Rejected" $
+    let validInput i = all ($ i)
+         [ isn't (_As @"FirePlayer")
+         , isn't (_As @"AbortGame")
+         ]
+    in for_ (filter validInput everyInput) $ \i ->
+      inputTest (FiringRound roles) i (Left InvalidActionForGameState)
   ]
 
 inputEventTests :: TestTree
@@ -195,6 +220,13 @@ inputEventTests = testGroup "inputEvent" $
   , pregameTests
   , roundsTests
   , firingRoundTests
+  , testCase "State that are not {Complete, Aborted} can be aborted" $ 
+    let validState i = all ($ i)
+         [ isn't (_As @"Complete")
+         , isn't (_As @"Aborted")
+         ]
+    in for_ (filter validState everyState) $ \s ->
+      inputTest s (AbortGame (PlayerId 1)) (Right (Aborted (PlayerId 1), Nothing, Just $ GameAborted (PlayerId 1)))
   , testGroup "Complete" $
     [ testCase "All inputs rejected" $
       for_ everyInput $ \i -> inputTest (Aborted (PlayerId 1)) i (Left InvalidActionForGameState)
@@ -207,7 +239,7 @@ inputEventTests = testGroup "inputEvent" $
 
 inputTest gs i = inputExpectation (inputEvent gs i Nothing)
 inputExpectation prog e = do
-  out <- evalStateT prog (mkStdGen 1337)
+  out <- runExceptT $ evalStateT prog (mkStdGen 1337)
   out @?= e
 
 playersToMap = Map.fromList . fmap (\p -> (p^.field @"playerId", p))

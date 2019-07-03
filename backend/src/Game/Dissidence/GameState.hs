@@ -1,11 +1,11 @@
-{-# LANGUAGE DataKinds, DeriveGeneric, LambdaCase, OverloadedStrings, TypeApplications #-}
+{-# LANGUAGE DataKinds, DeriveGeneric, LambdaCase, OverloadedStrings, TypeApplications, FlexibleContexts #-}
 module Game.Dissidence.GameState where
 
 -- See https://www.ultraboardgames.com/avalon/game-rules.php for deets
 
 import Control.Lens
 
-import           Control.Monad.Except  (runExceptT, throwError)
+import           Control.Monad.Except  (MonadError, throwError)
 import           Control.Monad.Trans   (lift)
 import           Data.Foldable         (and)
 import           Data.Generics.Product (field)
@@ -72,7 +72,11 @@ data RoundsState = RoundsState
   , historicRounds        :: [HistoricRoundState]
   } deriving (Eq, Show, Generic)
 
-data ProposalState = NoProposal | Proposed (Set PlayerId) | Approved (Set PlayerId) deriving (Eq, Show, Generic)
+data ProposalState 
+  = NoProposal 
+  | Proposed (Set PlayerId) (Map PlayerId Bool)
+  | Approved (Set PlayerId) (Map PlayerId Bool) 
+  deriving (Eq, Show, Generic)
 
 data VotingResult = VotingResult
   { votingTeamLeader :: PlayerId
@@ -144,34 +148,35 @@ data GameStateInputError
   | GameStateTerminallyInvalid
   | PlayerIsNotLeader
   | IncorrectTeamSize
+  | DuplicateVote
   deriving (Eq, Show, Generic)
 
 -- We have some non referentially transparent reactions to input events, so we need to
 -- store and replay a little more to recreate the view of the world. The idea is that
 -- the GameStateInternalEvents get serialised
 inputEvent
-  :: MonadRandom m
+  :: (MonadError GameStateInputError m, MonadRandom m)
   => GameState
   -> GameStateInputEvent
   -> Maybe GameStateInternalEvent
-  -> m (Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent))
+  -> m (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
 inputEvent gs ev iEvMay = case gs of
   WaitingForPlayers o ps -> case ev of
-    AddPlayer p@(Player pId pName) -> pure $
-      if Map.member pId ps || (o ^. field @"playerId") == pId then Right (gs, Nothing, Nothing)
-      else if Map.size ps >= 9 then Left GameIsFull
-      else Right (WaitingForPlayers o (Map.insert pId p ps), Nothing, Just $ PlayerAdded p)
+    AddPlayer p@(Player pId pName) -> 
+      if Map.member pId ps || (o ^. field @"playerId") == pId then pure (gs, Nothing, Nothing)
+      else if Map.size ps >= 9 then throwError GameIsFull
+      else pure (WaitingForPlayers o (Map.insert pId p ps), Nothing, Just $ PlayerAdded p)
 
-    RemovePlayer  pId -> pure $
-      if (o ^. field @"playerId") == pId then Left GameOwnerCannotLeave
-      else Right (WaitingForPlayers o (Map.delete pId ps), Nothing, Just $ PlayerRemoved pId)
+    RemovePlayer  pId -> 
+      if (o ^. field @"playerId") == pId then throwError GameOwnerCannotLeave
+      else pure (WaitingForPlayers o (Map.delete pId ps), Nothing, Just $ PlayerRemoved pId)
 
     StartGame pId ->
-      if (o ^. field @"playerId") /= pId then pure $ Left OwnerMustStartGame
+      if (o ^. field @"playerId") /= pId then throwError OwnerMustStartGame
       else
         let allPlayersMap = Map.insert (o^. field @"playerId") o ps
         in case (playersCount . Map.size $ allPlayersMap) of
-          Nothing -> pure $ Left NotEnoughPlayers
+          Nothing -> throwError NotEnoughPlayers
           Just pc -> do
             rolesMap <- case iEvMay of
               Just (AssignRoles rolesMap) -> pure rolesMap
@@ -186,7 +191,7 @@ inputEvent gs ev iEvMay = case gs of
                   (\p r -> (p,r,False))
                   allPlayersMap
                   rolesMap
-            pure . Right $
+            pure 
               ( Pregame rolesPlayerMap
               , Just $ AssignRoles rolesMap
               , Just $ PregameStarted rolesMap
@@ -197,22 +202,22 @@ inputEvent gs ev iEvMay = case gs of
 
   Pregame roleConfirms -> case ev of
     ConfirmOk pId ->
-      if not (Map.member pId roleConfirms) then pure (Left $ PlayerNotInGame pId)
+      if not (Map.member pId roleConfirms) then throwError $ PlayerNotInGame pId
       else
         let newConfirms = roleConfirms & ix pId . _3 .~ True
         in
           if not (and ((^. _3) <$> newConfirms))
-          then pure (Right (Pregame newConfirms, Nothing, Just PlayerConfirmed))
+          then pure (Pregame newConfirms, Nothing, Just PlayerConfirmed)
           else case (playersCount (Map.size newConfirms)) of
-            Nothing   -> pure $ Left GameStateTerminallyInvalid
-            (Just pc) -> runExceptT $ do
+            Nothing   -> throwError GameStateTerminallyInvalid
+            (Just pc) -> do
               order <- case iEvMay of
                 (Just (ShufflePlayerOrder nel)) ->
                   if (NEL.toList nel) == (Map.keys roleConfirms)
                   then pure nel
                   else throwError GameStateTerminallyInvalid
                 _ ->
-                  lift . fmap NEL.fromList $ sampleRVar (shuffle $ Map.keys newConfirms)
+                  NEL.fromList <$> sampleRVar (shuffle $ Map.keys newConfirms)
 
               let roles = (\(p,r,_) -> (p,r)) <$> newConfirms
               let roundsState = initialRoundsState roles order pc
@@ -228,25 +233,49 @@ inputEvent gs ev iEvMay = case gs of
   Rounds rs -> case (rs ^. field @"roundsCurrentProposal") of
     NoProposal -> case ev of
       ProposeTeam pId ps ->
-        if pId /= (rs ^. field @"roundsCurrentLeader") then pure $ Left PlayerIsNotLeader
+        if pId /= (rs ^. field @"roundsCurrentLeader") then throwError PlayerIsNotLeader
         else if (Set.size ps) /= rs ^. field @"roundsCurrentShape" . field @"roundShapeTeamSize" . to fromIntegral
-          then pure $ Left IncorrectTeamSize
-          else pure $ Right (Rounds (rs & field @"roundsCurrentProposal" .~ Proposed ps), Nothing, Just $ TeamProposed ps)
+          then throwError IncorrectTeamSize
+          else pure 
+            ( Rounds (rs & field @"roundsCurrentProposal" .~ Proposed ps Map.empty)
+            , Nothing
+            , Just $ TeamProposed ps
+            )
+      AbortGame pId -> abortGame pId
       _ -> invalidAction
-    Proposed ps -> case ev of
+
+    Proposed ps votes -> case ev of
+      VoteOnTeam pId pass -> 
+        let teamSansLeader = Map.delete (rs ^. field @"roundsCurrentLeader" ) (rs ^. field @"roundsRoles")
+            newVotes = Map.insert pId pass votes
+            passVotes = length . filter id . Map.elems $ newVotes
+            failVotes = length . filter not . Map.elems $ newVotes
+        in 
+          if not (Map.member pId teamSansLeader) then throwError $ PlayerNotInGame pId
+          else if (Map.member pId votes) then throwError DuplicateVote
+          else if (Map.size votes < Map.size teamSansLeader) 
+            then pure (Rounds (rs & field @"roundsCurrentProposal" .~ Proposed ps newVotes), Nothing, Nothing)
+            else if (passVotes > failVotes) then undefined -- Move to ApprovedState!
+            else undefined -- Cycle leader if no more than 4 team rejections else game over
+
+      AbortGame pId -> abortGame pId
       _ -> invalidAction
-    Approved ps -> case ev of
+
+    Approved ps votes -> case ev of
+      VoteOnProject pId pass -> undefined
+      AbortGame pId -> abortGame pId
       _ -> invalidAction
 
   FiringRound rs -> case ev of
+    AbortGame pId -> abortGame pId
     _ -> invalidAction
 
   Complete _ -> invalidAction
   Aborted _ -> invalidAction
 
   where
-    abortGame pId = pure $ Right (Aborted pId, Nothing, Just $ GameAborted pId)
-    invalidAction = pure . Left $ InvalidActionForGameState
+    abortGame pId = pure (Aborted pId, Nothing, Just $ GameAborted pId)
+    invalidAction = throwError InvalidActionForGameState
 
 playersCount :: Int -> Maybe PlayersCount
 playersCount = \case
