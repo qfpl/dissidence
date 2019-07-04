@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds, DeriveGeneric, LambdaCase, OverloadedStrings, TypeApplications, FlexibleContexts #-}
+{-# LANGUAGE DataKinds, DeriveGeneric, FlexibleContexts, LambdaCase, OverloadedStrings, TypeApplications #-}
 module Game.Dissidence.GameState where
 
 -- See https://www.ultraboardgames.com/avalon/game-rules.php for deets
@@ -56,29 +56,31 @@ data GameState
   = WaitingForPlayers Player (Map PlayerId Player)
   | Pregame (Map PlayerId (Player,Role,Bool))
   | Rounds RoundsState
-  | FiringRound RolesMap
-  | Complete EndCondition
+  | FiringRound RolesMap [HistoricRoundState]
+  | Complete EndCondition [HistoricRoundState]
   | Aborted PlayerId
   deriving (Eq, Show, Generic)
 
 data RoundsState = RoundsState
   { roundsRoles           :: RolesMap
-  , roundsPlayerOrder     :: NonEmpty PlayerId
+  , roundsLeadershipQueue :: NonEmpty PlayerId
   , roundsCurrentShape    :: RoundShape
-  , roundsCurrentLeader   :: PlayerId
   , roundsCurrentProposal :: ProposalState
-  , roundsCurrentVotes    :: [VotingResult]
-  , futureRounds          :: [RoundShape]
-  , historicRounds        :: [HistoricRoundState]
+  , roundsCurrentVotes    :: [TeamVotingResult]
+  , roundsFuture          :: [RoundShape]
+  , roundsHistoric        :: [HistoricRoundState]
   } deriving (Eq, Show, Generic)
 
-data ProposalState 
-  = NoProposal 
+roundsCurrentLeader :: Getter RoundsState PlayerId
+roundsCurrentLeader = field @"roundsLeadershipQueue" . to NEL.head
+
+data ProposalState
+  = NoProposal
   | Proposed (Set PlayerId) (Map PlayerId Bool)
-  | Approved (Set PlayerId) (Map PlayerId Bool) 
+  | Approved (Set PlayerId) (Map PlayerId Bool)
   deriving (Eq, Show, Generic)
 
-data VotingResult = VotingResult
+data TeamVotingResult = TeamVotingResult
   { votingTeamLeader :: PlayerId
   , votingResultTeam :: Set PlayerId
   , votingResult     :: Map PlayerId Bool
@@ -88,8 +90,8 @@ data RoundResult = RoundSuccess | RoundFail Natural | RoundNoConsensus deriving 
 
 data HistoricRoundState = HistoricRoundState
   { pastRoundShape  :: RoundShape
-  , pastRoundTeam   :: Set PlayerId
-  , pastRoundVotes  :: [VotingResult]
+  , pastRoundTeam   :: Maybe (Set PlayerId)
+  , pastRoundVotes  :: [TeamVotingResult]
   , pastRoundResult :: RoundResult
   } deriving (Eq, Show, Generic)
 
@@ -147,6 +149,7 @@ data GameStateInputError
   | PlayerNotInGame PlayerId
   | GameStateTerminallyInvalid
   | PlayerIsNotLeader
+  | LeaderCannotVoteOnTeam
   | IncorrectTeamSize
   | DuplicateVote
   deriving (Eq, Show, Generic)
@@ -162,12 +165,12 @@ inputEvent
   -> m (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
 inputEvent gs ev iEvMay = case gs of
   WaitingForPlayers o ps -> case ev of
-    AddPlayer p@(Player pId pName) -> 
+    AddPlayer p@(Player pId pName) ->
       if Map.member pId ps || (o ^. field @"playerId") == pId then pure (gs, Nothing, Nothing)
       else if Map.size ps >= 9 then throwError GameIsFull
       else pure (WaitingForPlayers o (Map.insert pId p ps), Nothing, Just $ PlayerAdded p)
 
-    RemovePlayer  pId -> 
+    RemovePlayer  pId ->
       if (o ^. field @"playerId") == pId then throwError GameOwnerCannotLeave
       else pure (WaitingForPlayers o (Map.delete pId ps), Nothing, Just $ PlayerRemoved pId)
 
@@ -191,7 +194,7 @@ inputEvent gs ev iEvMay = case gs of
                   (\p r -> (p,r,False))
                   allPlayersMap
                   rolesMap
-            pure 
+            pure
               ( Pregame rolesPlayerMap
               , Just $ AssignRoles rolesMap
               , Just $ PregameStarted rolesMap
@@ -233,10 +236,10 @@ inputEvent gs ev iEvMay = case gs of
   Rounds rs -> case (rs ^. field @"roundsCurrentProposal") of
     NoProposal -> case ev of
       ProposeTeam pId ps ->
-        if pId /= (rs ^. field @"roundsCurrentLeader") then throwError PlayerIsNotLeader
+        if pId /= (rs ^.roundsCurrentLeader) then throwError PlayerIsNotLeader
         else if (Set.size ps) /= rs ^. field @"roundsCurrentShape" . field @"roundShapeTeamSize" . to fromIntegral
           then throwError IncorrectTeamSize
-          else pure 
+          else pure
             ( Rounds (rs & field @"roundsCurrentProposal" .~ Proposed ps Map.empty)
             , Nothing
             , Just $ TeamProposed ps
@@ -245,37 +248,71 @@ inputEvent gs ev iEvMay = case gs of
       _ -> invalidAction
 
     Proposed ps votes -> case ev of
-      VoteOnTeam pId pass -> 
-        let teamSansLeader = Map.delete (rs ^. field @"roundsCurrentLeader" ) (rs ^. field @"roundsRoles")
+      VoteOnTeam pId pass ->
+        let teamSansLeader = Map.delete (rs ^.roundsCurrentLeader) (rs ^. field @"roundsRoles")
             newVotes = Map.insert pId pass votes
-            passVotes = length . filter id . Map.elems $ newVotes
-            failVotes = length . filter not . Map.elems $ newVotes
-        in 
-          if not (Map.member pId teamSansLeader) then throwError $ PlayerNotInGame pId
+            passVotes = fromIntegral . length . filter id . Map.elems $ newVotes
+            failVotes = fromIntegral . length . filter not . Map.elems $ newVotes
+        in
+          if pId == rs ^.roundsCurrentLeader then throwError LeaderCannotVoteOnTeam
+          else if not (Map.member pId teamSansLeader) then throwError $ PlayerNotInGame pId
           else if (Map.member pId votes) then throwError DuplicateVote
-          else if (Map.size votes < Map.size teamSansLeader) 
+          else if (Map.size newVotes < Map.size teamSansLeader)
             then pure (Rounds (rs & field @"roundsCurrentProposal" .~ Proposed ps newVotes), Nothing, Nothing)
-            else if (passVotes > failVotes) then undefined -- Move to ApprovedState!
-            else undefined -- Cycle leader if no more than 4 team rejections else game over
+            else
+              let newHistory = TeamVotingResult (rs^.roundsCurrentLeader) ps newVotes
+              in
+                if (passVotes > failVotes)
+                then pure
+                  ( Rounds $ rs
+                    & field @"roundsCurrentProposal" .~ Approved ps Map.empty
+                    & field @"roundsCurrentVotes" <>~ [newHistory]
+                  , Nothing
+                  , Just $ TeamApproved passVotes
+                  )
+                else if (length (rs^.field @"roundsCurrentVotes")) >= 4
+                  then
+                    let ec = SideEffectsWin FiveTeamsVetoed
+                        hist = currentToHistoric (rs & field @"roundsCurrentVotes" <>~ [newHistory]) RoundNoConsensus
+                        hists = (rs ^. field @"roundsHistoric") <> [hist]
+                    in pure (Complete ec hists, Nothing, Just $ GameEnded ec)
+                  else do
+                    let newQueue = cycleLeadershipQueue (rs ^. field @"roundsLeadershipQueue")
+                    pure ( Rounds $ rs
+                      & field @"roundsCurrentProposal" .~ NoProposal
+                      & field @"roundsLeadershipQueue" .~ newQueue
+                      & field @"roundsCurrentVotes" <>~ [newHistory]
+                      , Nothing
+                      , Just $ TeamRejected passVotes (NEL.head newQueue) -- TODO: This is iffy that we don't send the whole queue
+                      )
 
       AbortGame pId -> abortGame pId
       _ -> invalidAction
 
     Approved ps votes -> case ev of
       VoteOnProject pId pass -> undefined
-      AbortGame pId -> abortGame pId
-      _ -> invalidAction
+      AbortGame pId          -> abortGame pId
+      _                      -> invalidAction
 
-  FiringRound rs -> case ev of
+  FiringRound rs hist -> case ev of
     AbortGame pId -> abortGame pId
-    _ -> invalidAction
+    _             -> invalidAction
 
-  Complete _ -> invalidAction
+  Complete _ _ -> invalidAction
   Aborted _ -> invalidAction
 
   where
     abortGame pId = pure (Aborted pId, Nothing, Just $ GameAborted pId)
     invalidAction = throwError InvalidActionForGameState
+
+cycleLeadershipQueue :: NEL.NonEmpty PlayerId -> NEL.NonEmpty PlayerId
+cycleLeadershipQueue q = NEL.fromList $ (NEL.tail q) <> [NEL.head q]
+
+currentToHistoric :: RoundsState -> RoundResult -> HistoricRoundState
+currentToHistoric rs = HistoricRoundState
+  (rs ^. field @"roundsCurrentShape")
+  (rs ^? field @"roundsCurrentProposal"._As @"Approved"._1)
+  (rs ^. field @"roundsCurrentVotes")
 
 playersCount :: Int -> Maybe PlayersCount
 playersCount = \case
@@ -319,7 +356,7 @@ initialRoundsState roles order = \case
   Players9  -> rss 3 4 4 5 5 True
   Players10 -> rss 3 4 4 5 5 True
   where
-    rss r1 r2 r3 r4 r5 b = RoundsState roles order (rs r1 False) (NEL.head order) NoProposal []
+    rss r1 r2 r3 r4 r5 b = RoundsState roles order (rs r1 False) NoProposal []
       [(rs r2 False),(rs r3 False),(rs r4 b),(rs r5 False)]
       []
     rs n b = RoundShape n b

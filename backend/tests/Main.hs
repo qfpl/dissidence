@@ -1,17 +1,21 @@
-{-# LANGUAGE DataKinds, FlexibleContexts, OverloadedStrings, RankNTypes, TypeApplications, TupleSections #-}
+{-# LANGUAGE DataKinds, FlexibleContexts, OverloadedStrings, RankNTypes, TupleSections, TypeApplications #-}
 
 import Control.Lens
 
-import           Control.Monad.Except      (ExceptT (ExceptT), runExceptT)
-import           Control.Monad.State       (evalStateT)
+import           Control.Error             (flipEither, hush)
+import           Control.Monad.Except      (Except, ExceptT (ExceptT), MonadError, runExcept, runExceptT)
+import           Control.Monad.State       (MonadState, State, StateT, evalStateT, get, put, runStateT)
+import           Control.Monad.Writer      (MonadWriter, Writer, runWriter, tell)
 import           Data.Foldable             (foldrM, for_, or)
 import           Data.Generics.Product     (field)
 import           Data.Generics.Sum         (_As)
 import           Data.List                 (inits)
 import           Data.List.NonEmpty        (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty        as NEL
 import qualified Data.Map                  as Map
 import           Data.Monoid               (Any (Any, getAny))
-import           Data.Random.Source.StdGen (mkStdGen)
+import           Data.Random.Source.StdGen (StdGen, mkStdGen)
+import           Data.RVar                 (MonadRandom)
 import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Data.Text                 (Text, pack)
@@ -113,15 +117,11 @@ pregameTests = testGroup "Pregame" $
         , Nothing
         , Just $ PlayerConfirmed ))
   , testCase "Confirming all players starts game" $
-    let testProg = foldrM
-          (\i (gs,_,_) -> inputEvent gs (ConfirmOk (PlayerId i)) Nothing)
-          (Pregame roleConfirms, Nothing, Nothing)
-          [1..5]
-    in inputExpectation testProg (Right
+    inputsTest (Pregame roleConfirms) (ConfirmOk . PlayerId <$> 1 :| [2..5]) $ Right
       ( Rounds roundsState
       , Just $ ShufflePlayerOrder playerOrder
       , Just $ RoundsCommenced roundsState
-      ))
+      )
   , testCase "Invalid Inputs are Rejected" $
     let validInput i = all ($ i)
          [ isn't (_As @"ConfirmOk")
@@ -133,10 +133,7 @@ pregameTests = testGroup "Pregame" $
 
 roundsTests :: TestTree
 roundsTests = testGroup "Round" $
-  let decentRound1Proposal = Set.fromList [PlayerId 4, PlayerId 1]
-      proposedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Proposed decentRound1Proposal Map.empty)
-      approvedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Approved decentRound1Proposal Map.empty)
-  in [ testGroup "Team Proposal" $
+  [ testGroup "Team Proposal" $
     [ testCase "Proposing Team works" $
       inputTest (Rounds roundsState) (ProposeTeam (PlayerId 2) decentRound1Proposal)
         (Right (proposedState, Nothing, Just $ TeamProposed decentRound1Proposal))
@@ -162,20 +159,77 @@ roundsTests = testGroup "Round" $
   , testGroup "Team Voting"
     [ testCase "Voting works" $
       inputTest proposedState (VoteOnTeam (PlayerId 1) False)
-        (Right 
+        (Right
           ( proposedState & _As @"Rounds".field @"roundsCurrentProposal"._As @"Proposed"._2. at (PlayerId 1) ?~ False
           , Nothing
-          ,Nothing
+          , Nothing
           ))
-    , testCase "Voting Twice Doesn't work" $ error "todo"
+    , testCase "Leader doesn't vote on their own team" $
+      inputTest proposedState (VoteOnTeam (PlayerId 2) False)
+        (Left LeaderCannotVoteOnTeam)
+    , testCase "Voting Twice Doesn't work" $
+       inputsTest proposedState ((VoteOnTeam (PlayerId 1) False) :| [VoteOnTeam (PlayerId 1) True] )
+        (Left DuplicateVote)
     , testGroup "Last vote concludes team proposal" $
-      [ testCase "Success moves to project vote" $ error "todo"
-      , testCase "Fifth failure means Side-effects win" $ error "todo"
-      ]
-    , testCase "Voting doesn't work when team not-proposed or approved" $ error "todo"
+      let voteInputs = fmap (\(pId,b) -> VoteOnTeam (PlayerId pId) b)
+      in
+        [ testCase "Success moves to project vote" $
+          let votes = (1,True) :| [(3,True),(4,True),(5,True)]
+              votesMap = Map.fromList . fmap (_1 %~ PlayerId) . NEL.toList $ votes
+          in inputsTest proposedState (voteInputs votes) $ Right
+            ( approvedState & _As @"Rounds".field @"roundsCurrentVotes" <>~
+              [TeamVotingResult (PlayerId 2) decentRound1Proposal votesMap]
+            , Nothing
+            , Just $ TeamApproved 4
+            )
+        , testCase "Team Vote Failure cycles leader" $
+          let votes = (1,False) :| [(3,False),(4,True),(5,True)]
+              votesMap = Map.fromList . fmap (_1 %~ PlayerId) . NEL.toList $ votes
+          in inputsTest proposedState (voteInputs votes) $ Right
+            ( proposedState
+              & _As @"Rounds".field @"roundsCurrentProposal" .~ NoProposal
+              & _As @"Rounds".field @"roundsLeadershipQueue" .~ (PlayerId <$> 4 :| [5,1,3,2])
+              & _As @"Rounds".field @"roundsCurrentVotes" <>~
+                [TeamVotingResult (PlayerId 2) decentRound1Proposal votesMap]
+            , Nothing
+            , Just $ TeamRejected 2 (PlayerId 4)
+            )
+        , testCase "Fifth failure means Side-effects win" $
+          let votes = (1,False) :| [(3,False),(4,True),(5,True)]
+              votesMap = Map.fromList . fmap (_1 %~ PlayerId) . NEL.toList $ votes
+              votesFailMap = Map.fromList . fmap (\i -> (PlayerId i, False))
+          in inputsTest
+            (proposedState & _As @"Rounds" . field @"roundsCurrentVotes" .~
+              [ TeamVotingResult (PlayerId 4) decentRound1Proposal (votesFailMap [1,2,3,5])
+              , TeamVotingResult (PlayerId 5) decentRound1Proposal (votesFailMap [1,2,3,4])
+              , TeamVotingResult (PlayerId 1) decentRound1Proposal (votesFailMap [2,3,4,5])
+              , TeamVotingResult (PlayerId 3) decentRound1Proposal (votesFailMap [1,2,4,5])
+              ]
+            )
+            (voteInputs votes)
+            $ Right
+            ( Complete (SideEffectsWin FiveTeamsVetoed) [HistoricRoundState (RoundShape 2 False) Nothing
+              [ TeamVotingResult (PlayerId 4) decentRound1Proposal (votesFailMap [1,2,3,5])
+              , TeamVotingResult (PlayerId 5) decentRound1Proposal (votesFailMap [1,2,3,4])
+              , TeamVotingResult (PlayerId 1) decentRound1Proposal (votesFailMap [2,3,4,5])
+              , TeamVotingResult (PlayerId 3) decentRound1Proposal (votesFailMap [1,2,4,5])
+              , TeamVotingResult (PlayerId 2) decentRound1Proposal votesMap
+              ] RoundNoConsensus]
+            , Nothing
+            , Just $ GameEnded (SideEffectsWin FiveTeamsVetoed)
+            )
+        ]
+    , testCase "Voting doesn't work when team not-proposed or approved" $
+      for_ [Rounds roundsState, approvedState] $ \s ->
+        inputTest s (VoteOnTeam (PlayerId 1) True) (Left InvalidActionForGameState)
     ]
   , testGroup "Project Voting"
-    [ testCase "Voting works" $ error "todo"
+    [ testCase "Voting works" $
+      inputTest approvedState (VoteOnProject (PlayerId 4) True) (Right
+        ( approvedState &_As @"Rounds".field @"roundsCurrentProposal"._As @"Approved"._2.at (PlayerId 2) ?~ True
+        , Nothing
+        , Nothing
+        ))
     , testCase "Voting Twice Doesn't work" $ error "todo"
     , testCase "Only players in team can vote " $ error "todo"
     , testGroup "Last vote finalises round" $
@@ -211,7 +265,7 @@ firingRoundTests = testGroup "FiringRound" $
          , isn't (_As @"AbortGame")
          ]
     in for_ (filter validInput everyInput) $ \i ->
-      inputTest (FiringRound roles) i (Left InvalidActionForGameState)
+      inputTest (FiringRound roles []) i (Left InvalidActionForGameState)
   ]
 
 inputEventTests :: TestTree
@@ -220,7 +274,7 @@ inputEventTests = testGroup "inputEvent" $
   , pregameTests
   , roundsTests
   , firingRoundTests
-  , testCase "State that are not {Complete, Aborted} can be aborted" $ 
+  , testCase "State that are not {Complete, Aborted} can be aborted" $
     let validState i = all ($ i)
          [ isn't (_As @"Complete")
          , isn't (_As @"Aborted")
@@ -237,10 +291,29 @@ inputEventTests = testGroup "inputEvent" $
     ]
   ]
 
+inputsTest
+  :: GameState
+  -> NonEmpty GameStateInputEvent
+  -> Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
+  -> IO ()
+inputsTest gs is = inputExpectation (foldrM (\i (gs,_,_) -> inputEvent gs i Nothing) (gs, Nothing,Nothing) is)
+
+inputTest
+  :: GameState
+  -> GameStateInputEvent
+  -> Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
+  -> IO ()
 inputTest gs i = inputExpectation (inputEvent gs i Nothing)
-inputExpectation prog e = do
-  out <- runExceptT $ evalStateT prog (mkStdGen 1337)
-  out @?= e
+
+inputExpectation
+  :: (Eq a, Show a)
+  => StateT StdGen (Except GameStateInputError) a
+  -> Either GameStateInputError a
+  -> IO ()
+inputExpectation prog e = runExcept (notRandom prog) @?= e
+
+notRandom :: Monad m => StateT StdGen m a -> m a
+notRandom = flip evalStateT (mkStdGen 1337)
 
 playersToMap = Map.fromList . fmap (\p -> (p^.field @"playerId", p))
 player1 = Player (PlayerId 1) "Player1"
@@ -263,11 +336,18 @@ everyInput =
   , FirePlayer (PlayerId 2)
   , AbortGame (PlayerId 2)
   ]
+
+decentRound1Proposal = Set.fromList [PlayerId 4, PlayerId 1]
+proposedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Proposed decentRound1Proposal Map.empty)
+approvedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Approved decentRound1Proposal Map.empty)
+
 everyState =
   [ WaitingForPlayers player1 Map.empty
   , Pregame roleConfirms
   , Rounds roundsState
-  , FiringRound roles
-  , Complete CrusadersWin
+  , proposedState
+  , approvedState
+  , FiringRound roles []
+  , Complete CrusadersWin []
   , Aborted (PlayerId 1)
   ]

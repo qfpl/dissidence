@@ -56,8 +56,10 @@ test-suite tests
                      , dissidence-backend
                      , containers
                      , generic-lens
+                     , errors
                      , mtl
                      , lens
+                     , rvar
                      , random-source
                      , text
                      , tasty
