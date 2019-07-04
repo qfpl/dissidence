@@ -160,7 +160,7 @@ roundsTests = testGroup "Round" $
     [ testCase "Voting works" $
       inputTest proposedState (VoteOnTeam (PlayerId 1) False)
         (Right
-          ( proposedState & _As @"Rounds".field @"roundsCurrentProposal"._As @"Proposed"._2. at (PlayerId 1) ?~ False
+          ( proposedState & _As @"Rounds".roundsCurrentProposal._As @"Proposed"._2. at (PlayerId 1) ?~ False
           , Nothing
           , Nothing
           ))
@@ -177,7 +177,7 @@ roundsTests = testGroup "Round" $
           let votes = (1,True) :| [(3,True),(4,True),(5,True)]
               votesMap = Map.fromList . fmap (_1 %~ PlayerId) . NEL.toList $ votes
           in inputsTest proposedState (voteInputs votes) $ Right
-            ( approvedState & _As @"Rounds".field @"roundsCurrentVotes" <>~
+            ( approvedState & _As @"Rounds".roundsCurrentVotes <>~
               [TeamVotingResult (PlayerId 2) decentRound1Proposal votesMap]
             , Nothing
             , Just $ TeamApproved 4
@@ -187,9 +187,9 @@ roundsTests = testGroup "Round" $
               votesMap = Map.fromList . fmap (_1 %~ PlayerId) . NEL.toList $ votes
           in inputsTest proposedState (voteInputs votes) $ Right
             ( proposedState
-              & _As @"Rounds".field @"roundsCurrentProposal" .~ NoProposal
+              & _As @"Rounds".roundsCurrentProposal .~ NoProposal
               & _As @"Rounds".field @"roundsLeadershipQueue" .~ (PlayerId <$> 4 :| [5,1,3,2])
-              & _As @"Rounds".field @"roundsCurrentVotes" <>~
+              & _As @"Rounds".roundsCurrentVotes <>~
                 [TeamVotingResult (PlayerId 2) decentRound1Proposal votesMap]
             , Nothing
             , Just $ TeamRejected 2 (PlayerId 4)
@@ -199,7 +199,7 @@ roundsTests = testGroup "Round" $
               votesMap = Map.fromList . fmap (_1 %~ PlayerId) . NEL.toList $ votes
               votesFailMap = Map.fromList . fmap (\i -> (PlayerId i, False))
           in inputsTest
-            (proposedState & _As @"Rounds" . field @"roundsCurrentVotes" .~
+            (proposedState & _As @"Rounds" . roundsCurrentVotes .~
               [ TeamVotingResult (PlayerId 4) decentRound1Proposal (votesFailMap [1,2,3,5])
               , TeamVotingResult (PlayerId 5) decentRound1Proposal (votesFailMap [1,2,3,4])
               , TeamVotingResult (PlayerId 1) decentRound1Proposal (votesFailMap [2,3,4,5])
@@ -208,7 +208,7 @@ roundsTests = testGroup "Round" $
             )
             (voteInputs votes)
             $ Right
-            ( Complete (SideEffectsWin FiveTeamsVetoed) [HistoricRoundState (RoundShape 2 False) Nothing
+            ( Complete roles (SideEffectsWin FiveTeamsVetoed) [HistoricRoundState (RoundShape 2 False) Nothing
               [ TeamVotingResult (PlayerId 4) decentRound1Proposal (votesFailMap [1,2,3,5])
               , TeamVotingResult (PlayerId 5) decentRound1Proposal (votesFailMap [1,2,3,4])
               , TeamVotingResult (PlayerId 1) decentRound1Proposal (votesFailMap [2,3,4,5])
@@ -216,7 +216,7 @@ roundsTests = testGroup "Round" $
               , TeamVotingResult (PlayerId 2) decentRound1Proposal votesMap
               ] RoundNoConsensus]
             , Nothing
-            , Just $ GameEnded (SideEffectsWin FiveTeamsVetoed)
+            , Just $ GameEnded roles (SideEffectsWin FiveTeamsVetoed)
             )
         ]
     , testCase "Voting doesn't work when team not-proposed or approved" $
@@ -226,21 +226,30 @@ roundsTests = testGroup "Round" $
   , testGroup "Project Voting"
     [ testCase "Voting works" $
       inputTest approvedState (VoteOnProject (PlayerId 4) True) (Right
-        ( approvedState &_As @"Rounds".field @"roundsCurrentProposal"._As @"Approved"._2.at (PlayerId 2) ?~ True
+        ( approvedState &_As @"Rounds".roundsCurrentProposal._As @"Approved"._2.at (PlayerId 4) ?~ True
         , Nothing
         , Nothing
         ))
-    , testCase "Voting Twice Doesn't work" $ error "todo"
-    , testCase "Only players in team can vote " $ error "todo"
+    , testCase "Voting Twice Doesn't work" $
+       inputsTest approvedState ((VoteOnProject (PlayerId 1) False) :| [VoteOnProject (PlayerId 1) True] )
+        (Left DuplicateVote)
+    , testCase "Only players in team can vote " $
+      inputTest approvedState (VoteOnProject (PlayerId 2) True) (Left PlayerNotInTeam)
     , testGroup "Last vote finalises round" $
-      [ testCase "All success makes crusaders win" $ error "todo"
+      [ testCase "All success makes crusaders win" $
+        inputsTest approvedState ((VoteOnProject (PlayerId 1) True) :| [VoteOnProject (PlayerId 4) True])
+          (Right (approvedState, Nothing, Nothing))
       , testCase "1 failure fails project on non 2 fail round" $ error "todo"
+        inputsTest approvedState ((VoteOnProject (PlayerId 1) False) :| [VoteOnProject (PlayerId 4) True])
+          (Right (approvedState, Nothing, Nothing))
       , testCase "1 failure succeeds project on 2 fail round" $ error "todo"
       , testCase "2 failures fail project on a 2 fail round" $ error "todo"
-      , testCase "3rd Crusader win moves to firing round" $ error "todo"
-      , testCase "3rd Crusader win moves to side effects winning" $ error "todo"
+      , testCase "3rd Win moves to firing round" $ error "todo"
+      , testCase "3rd Fail moves to side effects winning" $ error "todo"
       ]
-    , testCase "Voting doesn't work when still in proposal" $ error "todo"
+    , testCase "Voting doesn't work when still in proposal" $
+      for_ [Rounds roundsState, proposedState] $ \s ->
+        inputTest s (VoteOnProject (PlayerId 1) True) (Left InvalidActionForGameState)
     ]
   , testCase "Invalid Inputs are Rejected" $
     let validInput i = all ($ i)
@@ -338,8 +347,8 @@ everyInput =
   ]
 
 decentRound1Proposal = Set.fromList [PlayerId 4, PlayerId 1]
-proposedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Proposed decentRound1Proposal Map.empty)
-approvedState = Rounds (roundsState & field @"roundsCurrentProposal" .~ Approved decentRound1Proposal Map.empty)
+proposedState = Rounds (roundsState & roundsCurrentProposal .~ Proposed decentRound1Proposal Map.empty)
+approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRound1Proposal Map.empty)
 
 everyState =
   [ WaitingForPlayers player1 Map.empty
@@ -348,6 +357,6 @@ everyState =
   , proposedState
   , approvedState
   , FiringRound roles []
-  , Complete CrusadersWin []
+  , Complete roles CrusadersWin []
   , Aborted (PlayerId 1)
   ]
