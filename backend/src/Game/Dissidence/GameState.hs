@@ -363,7 +363,7 @@ cycleLeadershipQueue q = NEL.fromList $ (NEL.tail q) <> [NEL.head q]
 calculateScores :: [HistoricRoundState] -> (Natural, Natural)
 calculateScores hs = (getSum *** getSum) . foldMap score $ hs^..traverse.field @"historicRoundResult"
   where
-    score (RoundSuccess _)    = (Sum 1,Sum 0)
+    score (RoundSuccess _) = (Sum 1,Sum 0)
     score (RoundFailure _) = (Sum 0,Sum 1)
     score RoundNoConsensus = (Sum 0,Sum 3)
 
