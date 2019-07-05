@@ -332,9 +332,17 @@ roundsTests = testGroup "Round" $
 
 firingRoundTests :: TestTree
 firingRoundTests = testGroup "FiringRound" $
-  [ testCase "Players other than the middle manager can't vote" $ error "todo"
-  , testCase "Middle manager fires FP manager. Side Effects Win" $ error "todo"
-  , testCase "Middle manager fires Anyone Else. Crusaders Win" $ error "TODO"
+  [ testCase "Players other than the middle manager can't vote" $
+    inputTest firingRound (FirePlayer (PlayerId 1) (PlayerId 2)) (Left PlayerNotManager)
+  , testCase "Middle manager fires FP manager. Side Effects Win" $
+    inputTest firingRound (FirePlayer (PlayerId 2) (PlayerId 1)) $ Right
+      ( Complete roles (SideEffectsWin FPExpertFired) firingRoundH
+      , Nothing
+      , Just $ GameEnded roles (SideEffectsWin FPExpertFired)
+      )
+  , testCase "Middle manager fires Anyone Else. Crusaders Win" $
+    inputTest firingRound (FirePlayer (PlayerId 2) (PlayerId 4)) $ Right
+      ( Complete roles CrusadersWin firingRoundH , Nothing , Just $ GameEnded roles CrusadersWin)
   , testCase "Invalid Inputs are Rejected" $
     let validInput i = all ($ i)
          [ isn't (_As @"FirePlayer")
@@ -343,6 +351,15 @@ firingRoundTests = testGroup "FiringRound" $
     in for_ (filter validInput everyInput) $ \i ->
       inputTest (FiringRound roles []) i (Left InvalidActionForGameState)
   ]
+  where
+    firingRound = FiringRound roles firingRoundH
+    firingRoundH =
+      [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+      , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+      , HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+      , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundSuccess 0)
+      ]
+
 
 inputEventTests :: TestTree
 inputEventTests = testGroup "inputEvent" $
@@ -424,7 +441,7 @@ everyInput =
   , ProposeTeam (PlayerId 1) (Set.fromList [PlayerId 1])
   , VoteOnTeam (PlayerId 2) True
   , VoteOnProject (PlayerId 2) True
-  , FirePlayer (PlayerId 2)
+  , FirePlayer (PlayerId 2) (PlayerId 1)
   , AbortGame (PlayerId 2)
   ]
 

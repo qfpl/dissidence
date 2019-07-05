@@ -124,7 +124,7 @@ data GameStateInputEvent
     | ProposeTeam PlayerId (Set PlayerId)
     | VoteOnTeam PlayerId Bool
     | VoteOnProject PlayerId Bool
-    | FirePlayer PlayerId
+    | FirePlayer PlayerId PlayerId
     | AbortGame PlayerId
     deriving (Eq, Show, Generic)
 
@@ -167,6 +167,7 @@ data GameStateInputError
   | LeaderCannotVoteOnTeam
   | IncorrectTeamSize
   | DuplicateVote
+  | PlayerNotManager
   deriving (Eq, Show, Generic)
 
 -- We have some non referentially transparent reactions to input events, so we need to
@@ -346,9 +347,18 @@ inputEvent gs ev iEvMay = case gs of
       AbortGame pId          -> abortGame pId
       _                      -> invalidAction
 
-  FiringRound rs hist -> case ev of
-    AbortGame pId -> abortGame pId
-    _             -> invalidAction
+  FiringRound roles hist -> case ev of
+    FirePlayer pId targetId ->
+      if (roles ^? ix pId._2) /= Just (SneakySideEffects (Just MiddleManager)) then throwError PlayerNotManager
+      else if (roles ^? ix targetId._2) /= Just (CompositionalCrusaders (Just FPExpert)) then pure
+        (Complete roles CrusadersWin hist, Nothing, Just $ GameEnded roles CrusadersWin)
+      else pure
+        ( Complete roles (SideEffectsWin FPExpertFired) hist
+        , Nothing
+        , Just $ GameEnded roles (SideEffectsWin FPExpertFired)
+        )
+    AbortGame pId           -> abortGame pId
+    _                       -> invalidAction
 
   Complete _ _ _ -> invalidAction
   Aborted _ -> invalidAction
