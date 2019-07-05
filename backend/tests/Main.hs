@@ -2,26 +2,29 @@
 
 import Control.Lens
 
-import           Control.Error             (flipEither, hush)
-import           Control.Monad.Except      (Except, ExceptT (ExceptT), MonadError, runExcept, runExceptT)
-import           Control.Monad.State       (MonadState, State, StateT, evalStateT, get, put, runStateT)
-import           Control.Monad.Writer      (MonadWriter, Writer, runWriter, tell)
-import           Data.Foldable             (foldrM, for_, or)
-import           Data.Generics.Product     (field)
-import           Data.Generics.Sum         (_As)
-import           Data.List                 (inits)
-import           Data.List.NonEmpty        (NonEmpty ((:|)))
-import qualified Data.List.NonEmpty        as NEL
-import qualified Data.Map                  as Map
-import           Data.Monoid               (Any (Any, getAny))
-import           Data.Random.Source.StdGen (StdGen, mkStdGen)
-import           Data.RVar                 (MonadRandom)
-import           Data.Set                  (Set)
-import qualified Data.Set                  as Set
-import           Data.Text                 (Text, pack)
-import           Numeric.Natural           (Natural)
+import           Control.Error              (flipEither, hush)
+import           Control.Monad.Except       (Except, ExceptT (ExceptT), MonadError, runExcept, runExceptT)
+import           Control.Monad.State        (MonadState, State, StateT, evalStateT, get, put, runStateT)
+import           Control.Monad.Writer       (MonadWriter, Writer, runWriter, tell)
+import           Data.Algorithm.DiffContext (getContextDiff, prettyContextDiff)
+import           Data.Foldable              (foldrM, for_, or)
+import           Data.Generics.Product      (field)
+import           Data.Generics.Sum          (_As)
+import           Data.List                  (inits)
+import           Data.List.NonEmpty         (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty         as NEL
+import qualified Data.Map                   as Map
+import           Data.Monoid                (Any (Any, getAny))
+import           Data.Random.Source.StdGen  (StdGen, mkStdGen)
+import           Data.RVar                  (MonadRandom)
+import           Data.Set                   (Set)
+import qualified Data.Set                   as Set
+import           Data.Text                  (Text, pack)
+import           Numeric.Natural            (Natural)
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import qualified Text.PrettyPrint           as Doc
+import           Text.Show.Pretty           (ppShow)
 
 import Game.Dissidence.GameState
 
@@ -238,14 +241,78 @@ roundsTests = testGroup "Round" $
     , testGroup "Last vote finalises round" $
       [ testCase "All success makes crusaders win" $
         inputsTest approvedState ((VoteOnProject (PlayerId 1) True) :| [VoteOnProject (PlayerId 4) True])
-          (Right (approvedState, Nothing, Nothing))
-      , testCase "1 failure fails project on non 2 fail round" $ error "todo"
-        inputsTest approvedState ((VoteOnProject (PlayerId 1) False) :| [VoteOnProject (PlayerId 4) True])
-          (Right (approvedState, Nothing, Nothing))
-      , testCase "1 failure succeeds project on 2 fail round" $ error "todo"
-      , testCase "2 failures fail project on a 2 fail round" $ error "todo"
-      , testCase "3rd Win moves to firing round" $ error "todo"
-      , testCase "3rd Fail moves to side effects winning" $ error "todo"
+          (Right
+            (Rounds (RoundsState roles (pids $ 4 :| [5,1,3,2])
+              (CurrentRoundState (RoundShape 3 False) NoProposal [])
+              [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
+              [HistoricRoundState (RoundShape 2 False) (Just decentRound1Proposal) [] (RoundSuccess 0)]
+            )
+            , Nothing
+            , Just $ NextRound True 0
+            ))
+      , testCase "1 failure fails project on normal round" $
+        inputsTest approvedState ((VoteOnProject (PlayerId 1) False) :| [VoteOnProject (PlayerId 4) True]) $
+          (Right
+            (Rounds (RoundsState roles (pids $ 4 :| [5,1,3,2])
+              (CurrentRoundState (RoundShape 3 False) NoProposal [])
+              [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
+              [HistoricRoundState (RoundShape 2 False) (Just decentRound1Proposal) [] (RoundFailure 1)]
+            )
+            , Nothing
+            , Just $ NextRound False 1
+            ))
+      , testCase "1 failure succeeds project on 2 fail round" $
+        inputsTest
+          (approvedState & _As @"Rounds" . roundsCurrentShape . field @"roundShapeTwoFails" .~ True)
+          ((VoteOnProject (PlayerId 1) False) :| [VoteOnProject (PlayerId 4) True])
+          (Right
+            (Rounds (RoundsState roles (pids $ 4 :| [5,1,3,2])
+              (CurrentRoundState (RoundShape 3 False) NoProposal [])
+              [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
+              [HistoricRoundState (RoundShape 2 True) (Just decentRound1Proposal) [] (RoundSuccess 1)]
+            )
+            , Nothing
+            , Just $ NextRound True 1
+            ))
+      , testCase "2 failures fail project on a 2 fail round" $
+        inputsTest
+          (approvedState & _As @"Rounds" . roundsCurrentShape . field @"roundShapeTwoFails" .~ True)
+          ((VoteOnProject (PlayerId 1) False) :| [VoteOnProject (PlayerId 4) False])
+          (Right
+            (Rounds (RoundsState roles (pids $ 4 :| [5,1,3,2])
+              (CurrentRoundState (RoundShape 3 False) NoProposal [])
+              [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
+              [HistoricRoundState (RoundShape 2 True) (Just decentRound1Proposal) [] (RoundFailure 2)]
+            )
+            , Nothing
+            , Just $ NextRound False 2
+            ))
+      , testCase "3rd Win moves to firing round" $
+        inputsTest finalRound
+          ((VoteOnProject (PlayerId 1) True) :| [VoteOnProject (PlayerId 2) True, VoteOnProject (PlayerId 3) True])
+          ( Right
+            (FiringRound roles
+                [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+                , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+                , HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+                , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+                , HistoricRoundState (RoundShape 3 False) (Just $ Set.fromList (pids [1,2,3])) [] (RoundSuccess 0)
+                ]
+            , Nothing
+            , Just ThreeSuccessfulProjects))
+      , testCase "3rd Fail moves to side effects winning" $
+        inputsTest finalRound
+          ((VoteOnProject (PlayerId 1) True) :| [VoteOnProject (PlayerId 2) True, VoteOnProject (PlayerId 3) False])
+          ( Right
+            (Complete roles (SideEffectsWin ThreeFailedProjects)
+                [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+                , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+                , HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+                , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+                , HistoricRoundState (RoundShape 3 False) (Just $ Set.fromList (pids [1,2,3])) [] (RoundFailure 1)
+                ]
+            , Nothing
+            , Just $ GameEnded roles (SideEffectsWin ThreeFailedProjects)))
       ]
     , testCase "Voting doesn't work when still in proposal" $
       for_ [Rounds roundsState, proposedState] $ \s ->
@@ -319,7 +386,18 @@ inputExpectation
   => StateT StdGen (Except GameStateInputError) a
   -> Either GameStateInputError a
   -> IO ()
-inputExpectation prog e = runExcept (notRandom prog) @?= e
+inputExpectation prog e = runExcept (notRandom prog) @?~ e
+
+(@?~)
+  :: (Eq a, Show a)
+  => a
+  -> a
+  -> IO ()
+got @?~ expected = assertBool (show diff) (got == expected)
+  where
+    gotPurdy = lines $ ppShow got
+    expectedPurdy = lines $ ppShow expected
+    diff = prettyContextDiff "Got" "Expected" Doc.text (getContextDiff 3 gotPurdy expectedPurdy)
 
 notRandom :: Monad m => StateT StdGen m a -> m a
 notRandom = flip evalStateT (mkStdGen 1337)
@@ -332,7 +410,11 @@ player11 = players !! 11
 roles = Map.fromList $ zipPlayersRoles (player1 : players) (playersToRoles Players5)
 roleConfirms = (\(p,r) -> (p,r,False)) <$> roles
 zipPlayersRoles = zipWith (\p@(Player pId _) r -> (pId,(p,r)))
-playerOrder = PlayerId <$> (2 :| [4,5,1,3])
+
+pids :: Functor f => f Natural -> f PlayerId
+pids = fmap PlayerId
+
+playerOrder = pids (2 :| [4,5,1,3])
 roundsState = initialRoundsState roles playerOrder Players5
 everyInput =
   [ AddPlayer player2
@@ -350,13 +432,32 @@ decentRound1Proposal = Set.fromList [PlayerId 4, PlayerId 1]
 proposedState = Rounds (roundsState & roundsCurrentProposal .~ Proposed decentRound1Proposal Map.empty)
 approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRound1Proposal Map.empty)
 
+finalRound = Rounds $ RoundsState
+  roles
+  playerOrder
+  (CurrentRoundState (RoundShape 3 False) (Approved (Set.fromList $ PlayerId <$> [1..3]) Map.empty) [])
+  []
+  [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+  , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+  , HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+  , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+  ]
+
 everyState =
   [ WaitingForPlayers player1 Map.empty
   , Pregame roleConfirms
   , Rounds roundsState
   , proposedState
   , approvedState
-  , FiringRound roles []
-  , Complete roles CrusadersWin []
+  , FiringRound roles [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+    , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+    , HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+    , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundSuccess 0)
+    ]
+  , Complete roles CrusadersWin [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+    , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)
+    , HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
+    , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundSuccess 0)
+    ]
   , Aborted (PlayerId 1)
   ]

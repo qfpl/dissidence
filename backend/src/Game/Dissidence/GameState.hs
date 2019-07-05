@@ -100,7 +100,7 @@ data TeamVotingResult = TeamVotingResult
   , votingResult     :: Map PlayerId Bool
   } deriving (Eq, Show, Generic)
 
-data RoundResult = RoundSuccess | RoundFail Natural | RoundNoConsensus deriving (Eq, Show, Generic)
+data RoundResult = RoundSuccess Natural | RoundFailure Natural | RoundNoConsensus deriving (Eq, Show, Generic)
 
 data HistoricRoundState = HistoricRoundState
   { historicRoundShape  :: RoundShape
@@ -320,7 +320,7 @@ inputEvent gs ev iEvMay = case gs of
             then pure (Rounds $ rs & field @"roundsCurrent" .~ newCr, Nothing, Nothing)
             else
               let failed = fails >= failsNeeded
-                  histRound  = currentToHistoric newCr (bool RoundSuccess (RoundFail fails) failed)
+                  histRound  = currentToHistoric newCr (bool (RoundSuccess fails) (RoundFailure fails) failed)
                   histRounds = (rs ^. field @"roundsHistoric") <> [histRound]
                   (cw,sw)  = calculateScores histRounds
                   roles    = rs ^. field @"roundsRoles"
@@ -338,6 +338,7 @@ inputEvent gs ev iEvMay = case gs of
                       ( Rounds $ rs
                         & field @"roundsHistoric" .~ histRounds
                         & field @"roundsCurrent" .~ (CurrentRoundState s NoProposal [])
+                        & field @"roundsLeadershipQueue" %~ cycleLeadershipQueue
                       , Nothing
                       , Just $ NextRound (not failed) fails
                       )
@@ -362,8 +363,8 @@ cycleLeadershipQueue q = NEL.fromList $ (NEL.tail q) <> [NEL.head q]
 calculateScores :: [HistoricRoundState] -> (Natural, Natural)
 calculateScores hs = (getSum *** getSum) . foldMap score $ hs^..traverse.field @"historicRoundResult"
   where
-    score RoundSuccess     = (Sum 1,Sum 0)
-    score (RoundFail _)    = (Sum 0,Sum 1)
+    score (RoundSuccess _)    = (Sum 1,Sum 0)
+    score (RoundFailure _) = (Sum 0,Sum 1)
     score RoundNoConsensus = (Sum 0,Sum 3)
 
 currentToHistoric :: CurrentRoundState -> RoundResult -> HistoricRoundState

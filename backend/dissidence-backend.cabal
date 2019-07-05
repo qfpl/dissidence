@@ -54,11 +54,14 @@ test-suite tests
   main-is:             Main.hs
   build-depends:       base ^>=4.12.0.0
                      , dissidence-backend
+                     , Diff
                      , containers
                      , generic-lens
                      , errors
                      , mtl
                      , lens
+                     , pretty
+                     , pretty-show
                      , rvar
                      , random-source
                      , text
