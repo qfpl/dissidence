@@ -9,13 +9,10 @@ import           Control.Monad.IO.Class             (MonadIO, liftIO)
 import           Control.Monad.Reader               (ReaderT, runReaderT)
 import qualified Data.ByteString.Lazy.Char8         as C8
 import           Data.Generics.Product              (field)
-import           Data.Text                          (Text)
 import           Database.SQLite.Simple             (Connection)
 import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
-import           GHC.Generics                       (Generic)
 import           Network.Wai.Handler.Warp           (run)
 import           Servant
-import           Servant.Elm                        (defaultOptions, deriveBoth)
 
 import Game.Dissidence.Config    (load)
 import Game.Dissidence.Db        (DbConstraints, initDb)
