@@ -30,12 +30,14 @@ type alias Model =
     { chatLines : List BE.ChatLine
     , chatErr : Maybe Http.Error
     , newChatText : String
+    , gameState : Maybe BE.GameState
+    , gameStateErr : Maybe Http.Error
     }
 
 
 init : ( Model, Cmd Msg )
 init =
-    ( initModel, BE.getLobby Nothing SetChatLines )
+    ( initModel, Cmd.batch [ BE.getApiLobby Nothing SetChatLines, BE.getApiGame SetGame ] )
 
 
 initModel : Model
@@ -43,11 +45,14 @@ initModel =
     { chatLines = []
     , chatErr = Nothing
     , newChatText = ""
+    , gameState = Nothing
+    , gameStateErr = Nothing
     }
 
 
 type Msg
     = FetchChat
+    | SetGame (Result Http.Error BE.GameState)
     | SetChatLines (Result Http.Error (List BE.ChatLine))
     | SetNewChatText String
     | SubmitNewChatLine
@@ -61,7 +66,27 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
     case action of
         FetchChat ->
-            ( model, BE.getLobby Nothing SetChatLines )
+            ( model, BE.getApiLobby Nothing SetChatLines )
+
+        SetGame res ->
+            ( { model
+                | gameState =
+                    case res of
+                        Ok gs ->
+                            Just gs
+
+                        Err _ ->
+                            model.gameState
+                , gameStateErr =
+                    case res of
+                        Ok _ ->
+                            Nothing
+
+                        Err e ->
+                            Just e
+              }
+            , Cmd.none
+            )
 
         SetChatLines res ->
             ( { model
@@ -88,13 +113,13 @@ update action model =
 
         SubmitNewChatLine ->
             ( model
-            , BE.postLobby
+            , BE.postApiLobby
                 { newChatLineUsername = "user", newChatLineText = model.newChatText }
                 SubmitNewChatLineRes
             )
 
         SubmitNewChatLineRes _ ->
-            ( { model | newChatText = "" }, BE.getLobby Nothing SetChatLines )
+            ( { model | newChatText = "" }, BE.getApiLobby Nothing SetChatLines )
 
         SetUrl _ ->
             ( model, Cmd.none )
@@ -103,7 +128,7 @@ update action model =
             ( model, Cmd.none )
 
         Tick _ ->
-            ( model, BE.getLobby Nothing SetChatLines )
+            ( model, BE.getApiLobby Nothing SetChatLines )
 
 
 subscriptions : Model -> Sub Msg
@@ -117,6 +142,11 @@ view model =
     , body =
         [ H.div
             []
+            [ H.h1 [] [ H.text "GameState" ]
+            , H.text (Maybe.withDefault "" (Maybe.map httpErrorToStr model.gameStateErr))
+            ]
+        , H.div
+            []
             ([ H.h1 [] [ H.text "Chat" ] ]
                 ++ List.map
                     (\cl ->
@@ -129,26 +159,7 @@ view model =
                     model.chatLines
             )
         , H.p []
-            [ H.text
-                (case model.chatErr of
-                    Nothing ->
-                        ""
-
-                    Just (Http.BadUrl s) ->
-                        "Bad URL: " ++ s
-
-                    Just Http.Timeout ->
-                        "Timeout"
-
-                    Just Http.NetworkError ->
-                        "NetworkError"
-
-                    Just (Http.BadStatus s) ->
-                        "Bad Status" ++ String.fromInt s
-
-                    Just (Http.BadBody s) ->
-                        "Bad Body" ++ s
-                )
+            [ H.text (Maybe.withDefault "" (Maybe.map httpErrorToStr model.chatErr))
             ]
         , H.input
             [ HA.placeholder "Enter Chat message"
@@ -159,6 +170,25 @@ view model =
             []
         ]
     }
+
+
+httpErrorToStr : Http.Error -> String
+httpErrorToStr err =
+    case err of
+        Http.BadUrl s ->
+            "Bad URL: " ++ s
+
+        Http.Timeout ->
+            "Timeout"
+
+        Http.NetworkError ->
+            "NetworkError"
+
+        Http.BadStatus s ->
+            "Bad Status" ++ String.fromInt s
+
+        Http.BadBody s ->
+            "Bad Body" ++ s
 
 
 onEnterPressed : msg -> H.Attribute msg

@@ -1,7 +1,3 @@
-{ 
-  db = {
-    connStr = "postgresql://dissidence:dissidence@localhost/dissidence",
-    timeout = 60,
-    poolSize = 10
-  }
+{
+  port = 8001
 }

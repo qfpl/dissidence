@@ -2,36 +2,20 @@
 {-# LANGUAGE TypeApplications, TypeOperators                                                   #-}
 module Game.Dissidence where
 
-import Control.Lens hiding (use)
+import Data.Text                (Text)
+import GHC.Generics             (Generic)
+import Network.Wai.Handler.Warp (run)
+import Servant
+import Servant.Elm              (defaultOptions, deriveBoth)
 
-import           Control.Monad.IO.Class     (liftIO)
-import           Data.Aeson                 (FromJSON, ToJSON)
-import qualified Data.ByteString.Lazy       as LBS
-import           Data.Functor.Contravariant ((>$<))
-import           Data.Generics.Product      (field)
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import           Data.Text.Encoding         (encodeUtf8)
-import           Data.Time                  (UTCTime)
-import           Data.Vector                (Vector)
-import           GHC.Generics               (Generic)
-import qualified Hasql.Decoders             as D
-import qualified Hasql.Encoders             as E
-import           Hasql.Migration            (MigrationCommand (..), MigrationError,
-                                             loadMigrationsFromDirectory, runMigration)
-import           Hasql.Pool                 (UsageError, use)
-import           Hasql.Statement            (Statement (Statement))
-import           Hasql.Transaction          (Transaction, statement)
-import           Hasql.Transaction.Sessions (IsolationLevel (Serializable), Mode (Read, Write), transaction)
-import           Network.Wai.Handler.Warp   (run)
-import           Servant
-import           Servant.Elm                (defaultOptions, deriveBoth)
+import Game.Dissidence.Config    (load)
+import Game.Dissidence.Env       (Env, configToEnv)
+import Game.Dissidence.GameState (GameState, PlayerId (..), newGame)
 
-import Game.Dissidence.Config (Config, load)
-import Game.Dissidence.Env    (Env, configToEnv)
+type Posix = Integer
 
 data ChatLine = ChatLine
-  { chatLineTime     :: UTCTime
+  { chatLineTime     :: Posix
   , chatLineUsername :: Text
   , chatLineText     :: Text
   } deriving (Show, Generic)
@@ -42,62 +26,40 @@ data NewChatLine = NewChatLine
   } deriving (Show, Generic)
 
 type ChatApi =
-  QueryParam "since" UTCTime :> Get '[JSON] (Vector ChatLine)
-  :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] NoContent
+  QueryParam "since" Posix :> Get '[JSON] [ChatLine]
+  :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
 
 concat <$> mapM
   (deriveBoth defaultOptions)
   [''ChatLine, ''NewChatLine]
 
-type Api = "api" :> "lobby" :> ChatApi
+type GameApi = Get '[JSON] GameState
+
+type Api = "api" :>
+  ("lobby" :> ChatApi
+  :<|> "game" :> GameApi
+  )
 
 api :: Proxy Api
 api = Proxy
 
-server :: ServerT Api Transaction
-server = globalChatGet :<|> globalChatAppend
+server :: ServerT Api Handler
+server = (globalChatGet :<|> globalChatAppend) :<|> gameGet
 
-globalChatGet    _ = statement () $ Statement "SELECT time, username, msg FROM chatlog" E.unit decoder False
-  where
-    decoder = D.rowVector $ ChatLine
-      <$> D.column D.timestamptz
-      <*> D.column D.text
-      <*> D.column D.text
+globalChatGet :: Maybe Posix -> Handler [ChatLine]
+globalChatGet _ = pure []
 
-globalChatAppend nl = statement nl $ Statement
-  "INSERT INTO chatlog (time, username, msg) VALUES (NOW(),$1,$2)"
-  encoder
-  (NoContent <$ D.unit)
-  True
-  where
-    encoder =
-      (newChatLineUsername >$< E.param E.text) <>
-      (newChatLineText >$< E.param E.text)
+globalChatAppend :: NewChatLine -> Handler ()
+globalChatAppend _ = pure ()
 
-
-runTransaction :: Env -> Transaction a -> IO (Either UsageError a)
-runTransaction e t = use (e ^. field @"dbPool") . transaction Serializable Write $ t
-
-transactionHandler :: Env -> Transaction a -> Handler a
-transactionHandler e t = do
-  dbRes <- liftIO $ runTransaction e t
-  either (throwError . usageErrorToServantErr) pure dbRes
-  where
-    usageErrorToServantErr ue = err500 { errBody = LBS.fromStrict . encodeUtf8 . T.pack . show $ ue }
+gameGet :: Handler GameState
+gameGet = pure (newGame (PlayerId "P1"))
 
 app :: Env -> Application
-app e = serve api (hoistServer api (transactionHandler e) server)
+app _ = serve api (hoistServer api id server)
 
 runApp :: IO ()
 runApp = do
   c  <- load "./config" -- TODO: Opts for path
   e  <- configToEnv c
-  putStrLn "Loading and applying any DB migrations"
-  ms <- loadMigrationsFromDirectory $ "./migrations/"
-  mRes <- fmap (fmap (^? traverse . _Just)) . runTransaction e . traverse runMigration $ MigrationInitialization : ms
-  case mRes of
-    Left ue         -> error $ "Error running migrations: " <> show ue
-    Right (Just me) -> error $ "Error running migrations: " <> show me
-    Right Nothing   -> do
-      putStrLn "Starting server on port 8001"
-      run 8001 (app e)
+  run 8001 (app e)

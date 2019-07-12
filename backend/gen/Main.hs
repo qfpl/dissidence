@@ -1,11 +1,44 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 module Main where
 
-import Game.Dissidence
-import Servant.Elm
+import qualified Data.Text                 as T
+import           Elm.TyRep
+import           Game.Dissidence
+import           Game.Dissidence.GameState
+import           Servant.Elm
+
+import Debug.Trace
 
 myElmOpts :: ElmOptions
-myElmOpts = defElmOptions { urlPrefix = Static "http://localhost:8001/" }
+myElmOpts = defElmOptions
+  { urlPrefix = Static ""
+  }
+
+myElmImports :: T.Text
+myElmImports = T.unlines
+  [ "import Json.Decode"
+  , "import Json.Encode exposing (Value)"
+  , "-- The following module comes from bartavelle/json-helpers"
+  , "import Json.Helpers exposing (..)"
+  , "import Dict exposing (Dict)"
+  , "import Set"
+  , "import Http"
+  , "import String"
+  , "import Url.Builder"
+  , "import Time exposing (Posix, posixToMillis, millisToPosix)"
+  , ""
+  , "maybeBoolToIntStr : Maybe Bool -> String"
+  , "maybeBoolToIntStr mx ="
+  , "  case mx of"
+  , "    Nothing -> \"\""
+  , "    Just True -> \"1\""
+  , "    Just False -> \"0\""
+  , ""
+  , "jsonDecPosix : Json.Decode.Decoder Posix"
+  , "jsonDecPosix = Json.Decode.map Time.millisToPosix Json.Decode.int"
+  , "jsonEncPosix : Posix -> Value"
+  , "jsonEncPosix = posixToMillis >> Json.Encode.int"
+  ]
 
 main :: IO ()
 main =
@@ -14,9 +47,24 @@ main =
     [ "Generated"
     , "Api"
     ]
-    defElmImports
+    myElmImports
     "../frontend/api/"
     [ DefineElm (Proxy :: Proxy ChatLine)
     , DefineElm (Proxy :: Proxy NewChatLine)
+    , DefineElm (Proxy :: Proxy PlayerId)
+    , DefineElm (Proxy :: Proxy CrusaderRole)
+    , DefineElm (Proxy :: Proxy SideEffectRole)
+    , DefineElm (Proxy :: Proxy Role)
+    , DefineElm (Proxy :: Proxy LeadershipQueue)
+    , DefineElm (Proxy :: Proxy SideEffectWinCondition)
+    , DefineElm (Proxy :: Proxy EndCondition)
+    , DefineElm (Proxy :: Proxy RoundShape)
+    , DefineElm (Proxy :: Proxy ProposalState)
+    , DefineElm (Proxy :: Proxy TeamVotingResult)
+    , DefineElm (Proxy :: Proxy RoundResult)
+    , DefineElm (Proxy :: Proxy CurrentRoundState)
+    , DefineElm (Proxy :: Proxy HistoricRoundState)
+    , DefineElm (Proxy :: Proxy RoundsState)
+    , DefineElm (Proxy :: Proxy GameState)
     ]
     (Proxy :: Proxy Api)
