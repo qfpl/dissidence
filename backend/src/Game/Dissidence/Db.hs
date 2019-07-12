@@ -1,8 +1,9 @@
-{-# LANGUAGE ConstraintKinds, DataKinds, FlexibleContexts, NamedFieldPuns, OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications                          #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, FlexibleContexts, NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, TemplateHaskell, TypeApplications   #-}
 
 module Game.Dissidence.Db
   ( initDb
+  , DbConstraints
 --  , insertUser
 --  , upsertGameState
 --  , selectUser
@@ -12,19 +13,39 @@ module Game.Dissidence.Db
 
 import Control.Lens
 
-import           Control.Monad                      ((<=<))
-import           Control.Monad.Error.Lens           (throwing)
-import           Control.Monad.Except               (MonadError)
-import           Control.Monad.IO.Class             (MonadIO, liftIO)
-import           Control.Monad.Reader               (MonadReader, ask)
-import           Data.Foldable                      (traverse_)
-import           Data.Int                           (Int64)
-import qualified Data.Text                          as T
-import           Database.SQLite.Simple             (Connection, Query (Query), ToRow, execute, execute_,
-                                                     lastInsertRowId)
-import           Database.SQLite.SimpleErrors       (runDBAction)
-import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
+import Control.Monad                      ((<=<))
+import Control.Monad.Error.Lens           (throwing)
+import Control.Monad.Except               (MonadError)
+import Control.Monad.IO.Class             (MonadIO, liftIO)
+import Control.Monad.Reader               (MonadReader, ask)
+import Data.Foldable                      (traverse_)
+import Data.Int                           (Int64)
+import Data.Text                          (Text)
+import Database.SQLite.Simple             (Connection, Query, ToRow, execute, execute_, lastInsertRowId)
+import Database.SQLite.SimpleErrors       (runDBAction)
+import Database.SQLite.SimpleErrors.Types (SQLiteResponse)
+import GHC.Generics                       (Generic)
+import Servant.Elm                        (defaultOptions, deriveBoth)
 
+type Posix = Integer
+
+newtype GameId = GameId { unGameId :: Integer } deriving (Show, Generic)
+
+data ChatLine = ChatLine
+  { chatLineTime     :: Posix
+  , chatLineGameId   :: Maybe GameId
+  , chatLineUsername :: Text
+  , chatLineText     :: Text
+  } deriving (Show, Generic)
+
+data NewChatLine = NewChatLine
+  { newChatLineUsername :: Text
+  , newChatLineText     :: Text
+  } deriving (Show, Generic)
+
+concat <$> mapM
+  (deriveBoth defaultOptions)
+  [''GameId, ''ChatLine, ''NewChatLine]
 
 class HasConnection s where
   connection :: Lens' s Connection
@@ -42,25 +63,37 @@ type DbConstraints e r m =
   , MonadError e m
   )
 
+selectChatLines :: DbConstraints e r m => Maybe GameId -> m [ChatLine]
+selectChatLines = _
+
 initDb ::
   DbConstraints e r m
   => m ()
 initDb =
   let
     enableForeignKeys = "PRAGMA foreign_keys = ON;"
-    toQ = Query . T.intercalate "\n"
-    qGameState = toQ [
-        "CREATE TABLE IF NOT EXISTS game_state"
-      , "( id INTEGER PRIMARY KEY"
-      , ", timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
-      , ", data TEXT NOT NULL"
-      , ")"
-      ]
+    qGameState = "CREATE TABLE IF NOT EXISTS game_state\
+      \( id INTEGER PRIMARY KEY\
+      \, timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\
+      \, data TEXT NOT NULL\
+      \)"
+    qChatLines = "CREATE TABLE IF NOT EXISTS chat_line\
+      \( id INTEGER PRIMARY KEY\
+      \, timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\
+      \, game_id INTEGER REFERENCES game_state(id)\
+      \, text TEXT NOT NULL\
+      \)"
+    qUsers = "CREATE TABLE IF NOT EXISTS user\
+      \( id INTEGER PRIMARY KEY\
+      \, username TEXT NOT NULL UNIQUE\
+      \)"
   in
     withConnIO $ \conn ->
       traverse_ (execute_ conn) [
         enableForeignKeys
       , qGameState
+      , qChatLines
+      , qUsers
       ]
 
 _insert ::

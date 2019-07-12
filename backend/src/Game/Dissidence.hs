@@ -2,36 +2,30 @@
 {-# LANGUAGE TypeApplications, TypeOperators                                                   #-}
 module Game.Dissidence where
 
-import Data.Text                (Text)
-import GHC.Generics             (Generic)
-import Network.Wai.Handler.Warp (run)
-import Servant
-import Servant.Elm              (defaultOptions, deriveBoth)
+import Control.Lens
+
+import           Control.Monad.Except               (ExceptT, runExceptT)
+import           Control.Monad.IO.Class             (MonadIO, liftIO)
+import           Control.Monad.Reader               (ReaderT, runReaderT)
+import qualified Data.ByteString.Lazy.Char8         as C8
+import           Data.Generics.Product              (field)
+import           Data.Text                          (Text)
+import           Database.SQLite.Simple             (Connection)
+import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
+import           GHC.Generics                       (Generic)
+import           Network.Wai.Handler.Warp           (run)
+import           Servant
+import           Servant.Elm                        (defaultOptions, deriveBoth)
 
 import Game.Dissidence.Config    (load)
-import Game.Dissidence.Env       (Env, configToEnv)
+import Game.Dissidence.Db        (DbConstraints, initDb)
+import Game.Dissidence.Env       (Env, configToEnv, withEnvDbConnection)
 import Game.Dissidence.GameState (GameState, PlayerId (..), newGame)
 
-type Posix = Integer
-
-data ChatLine = ChatLine
-  { chatLineTime     :: Posix
-  , chatLineUsername :: Text
-  , chatLineText     :: Text
-  } deriving (Show, Generic)
-
-data NewChatLine = NewChatLine
-  { newChatLineUsername :: Text
-  , newChatLineText     :: Text
-  } deriving (Show, Generic)
 
 type ChatApi =
   QueryParam "since" Posix :> Get '[JSON] [ChatLine]
   :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
-
-concat <$> mapM
-  (deriveBoth defaultOptions)
-  [''ChatLine, ''NewChatLine]
 
 type GameApi = Get '[JSON] GameState
 
@@ -43,23 +37,40 @@ type Api = "api" :>
 api :: Proxy Api
 api = Proxy
 
-server :: ServerT Api Handler
+server :: DbConstraints e r m => ServerT Api m
 server = (globalChatGet :<|> globalChatAppend) :<|> gameGet
 
-globalChatGet :: Maybe Posix -> Handler [ChatLine]
+globalChatGet :: DbConstraints e r m => Maybe Posix -> m [ChatLine]
 globalChatGet _ = pure []
 
-globalChatAppend :: NewChatLine -> Handler ()
+globalChatAppend :: DbConstraints e r m => NewChatLine -> m ()
 globalChatAppend _ = pure ()
 
-gameGet :: Handler GameState
+gameGet :: DbConstraints e r m => m GameState
 gameGet = pure (newGame (PlayerId "P1"))
 
 app :: Env -> Application
-app _ = serve api (hoistServer api id server)
+app e = serve api (hoistServer api (appHandler e) server)
+
+runContext :: MonadIO m => Env -> ExceptT SQLiteResponse (ReaderT Connection IO) a -> m (Either SQLiteResponse a)
+runContext e = liftIO . withEnvDbConnection e . runReaderT . runExceptT
+
+appHandler :: Env -> ExceptT SQLiteResponse (ReaderT Connection IO) a -> Handler a
+appHandler e prog = do
+  res <- runContext e prog
+  case res of
+    Left err -> throwError $ err500 { errBody = "Database error: " <> C8.pack (show err) }
+    Right a  -> pure a
 
 runApp :: IO ()
 runApp = do
   c  <- load "./config" -- TODO: Opts for path
   e  <- configToEnv c
-  run 8001 (app e)
+  putStrLn $ "Opening/Initialising sqlite database " <> (e ^. field @"dbPath")
+  initRes <- runContext e initDb
+  case initRes of
+    Left err -> error $ "DB Failed to initialise: " <> (show err)
+    Right _  -> do
+      let port = c ^. field @"port" . to fromIntegral
+      putStrLn $ "Starting server on port " <> (show port)
+      run port (app e)

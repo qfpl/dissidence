@@ -1,3 +1,4 @@
 {
-  port = 8001
+  port = 8001,
+  dbPath = "dissidence.db"
 }
