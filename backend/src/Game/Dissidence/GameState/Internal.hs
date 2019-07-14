@@ -16,67 +16,69 @@ import           Data.Monoid           (Sum (Sum), getSum)
 import           Data.Proxy            (Proxy (Proxy))
 import           Data.Set              (Set)
 import           Data.Text             (Text)
-import           Elm.Derive            (defaultOptions, deriveBoth)
+import           Elm.Derive            (deriveBoth)
 import           Elm.TyRep             (EPrimAlias (EPrimAlias), ETCon (ETCon), EType (ETyApp, ETyCon),
                                         ETypeDef (ETypePrimAlias), ETypeName (ETypeName),
                                         IsElmDefinition (..), toElmType)
 import           GHC.Generics          (Generic)
 import           Numeric.Natural       (Natural)
 
+import Game.Dissidence.AesonOptions (ourAesonOptions)
+
 newtype PlayerId = PlayerId { unPlayerId :: Text } deriving (Eq, Ord, Show, Generic, ToJSONKey, FromJSONKey)
-deriveBoth defaultOptions ''PlayerId
+deriveBoth ourAesonOptions ''PlayerId
 
 data CrusaderRole = FPExpert deriving (Eq, Ord, Show, Generic)
-deriveBoth defaultOptions ''CrusaderRole
+deriveBoth ourAesonOptions ''CrusaderRole
 data SideEffectRole = MiddleManager deriving (Eq, Ord, Show, Generic)
-deriveBoth defaultOptions ''SideEffectRole
+deriveBoth ourAesonOptions ''SideEffectRole
 
 data Role
    = CompositionalCrusaders (Maybe CrusaderRole)
    | SneakySideEffects (Maybe SideEffectRole)
    deriving (Eq, Ord, Show, Generic)
-deriveBoth defaultOptions ''Role
+deriveBoth ourAesonOptions ''Role
 
 data PlayersCount = Players5 | Players6 | Players7 | Players8 | Players9 | Players10
   deriving (Eq, Show, Generic)
 
 data SideEffectWinCondition = FPExpertFired | ThreeFailedProjects | FiveTeamsVetoed
   deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''SideEffectWinCondition
+deriveBoth ourAesonOptions ''SideEffectWinCondition
 
 data EndCondition = CrusadersWin | SideEffectsWin SideEffectWinCondition | GameCancelled
   deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''EndCondition
+deriveBoth ourAesonOptions ''EndCondition
 
 data RoundShape = RoundShape
   { roundShapeTeamSize :: Natural
   , roundShapeTwoFails :: Bool
   } deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''RoundShape
+deriveBoth ourAesonOptions ''RoundShape
 
 data ProposalState
   = NoProposal
   | Proposed (Set PlayerId) (Map PlayerId Bool)
   | Approved (Set PlayerId) (Map PlayerId Bool)
   deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''ProposalState
+deriveBoth ourAesonOptions ''ProposalState
 
 data TeamVotingResult = TeamVotingResult
   { votingTeamLeader :: PlayerId
   , votingResultTeam :: Set PlayerId
   , votingResult     :: Map PlayerId Bool
   } deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''TeamVotingResult
+deriveBoth ourAesonOptions ''TeamVotingResult
 
 data RoundResult = RoundSuccess Natural | RoundFailure Natural | RoundNoConsensus deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''RoundResult
+deriveBoth ourAesonOptions ''RoundResult
 
 data CurrentRoundState = CurrentRoundState
  { currentRoundShape    :: RoundShape
  , currentRoundProposal :: ProposalState
  , currentRoundVotes    :: [TeamVotingResult]
  } deriving (Eq,Show, Generic)
-deriveBoth defaultOptions ''CurrentRoundState
+deriveBoth ourAesonOptions ''CurrentRoundState
 
 data HistoricRoundState = HistoricRoundState
   { historicRoundShape  :: RoundShape
@@ -84,7 +86,7 @@ data HistoricRoundState = HistoricRoundState
   , historicRoundVotes  :: [TeamVotingResult]
   , historicRoundResult :: RoundResult
   } deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''HistoricRoundState
+deriveBoth ourAesonOptions ''HistoricRoundState
 
 newtype LeadershipQueue = LeadershipQueue { unLeadershipQueue :: NonEmpty PlayerId } deriving (Eq,Show, Generic)
 makeWrapped ''LeadershipQueue
@@ -106,7 +108,7 @@ data RoundsState = RoundsState
   , roundsFuture          :: [RoundShape]
   , roundsHistoric        :: [HistoricRoundState]
   } deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''RoundsState
+deriveBoth ourAesonOptions ''RoundsState
 
 roundsCurrentLeader :: Getter RoundsState PlayerId
 roundsCurrentLeader = field @"roundsLeadershipQueue" . _Wrapped . to NEL.head
@@ -126,7 +128,7 @@ data GameState
   | Complete (Map PlayerId Role) EndCondition [HistoricRoundState]
   | Aborted PlayerId
   deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''GameState
+deriveBoth ourAesonOptions ''GameState
 
 
 -- These are the events given to us by the UI and the ones stored in the database.
@@ -142,7 +144,7 @@ data GameStateInputEvent
     | FirePlayer PlayerId PlayerId
     | AbortGame PlayerId
     deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''GameStateInputEvent
+deriveBoth ourAesonOptions ''GameStateInputEvent
 
 -- These are the bits where the game decides some kind of random event
 data GameStateInternalEvent
@@ -169,7 +171,7 @@ data GameStateOutputEvent
   | GameAborted PlayerId
   | GameCrashed
   deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''GameStateOutputEvent
+deriveBoth ourAesonOptions ''GameStateOutputEvent
 
 data GameStateInputError
   = GameIsFull
@@ -186,7 +188,7 @@ data GameStateInputError
   | DuplicateVote
   | PlayerNotManager
   deriving (Eq, Show, Generic)
-deriveBoth defaultOptions ''GameStateInputError
+deriveBoth ourAesonOptions ''GameStateInputError
 
 cycleLeadershipQueue :: LeadershipQueue -> LeadershipQueue
 cycleLeadershipQueue (LeadershipQueue q) = LeadershipQueue . NEL.fromList $ (NEL.tail q) <> [NEL.head q]

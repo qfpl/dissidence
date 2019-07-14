@@ -1,9 +1,10 @@
-{-# LANGUAGE DataKinds, DeriveGeneric, OverloadedStrings, ScopedTypeVariables, TemplateHaskell #-}
-{-# LANGUAGE TypeApplications, TypeOperators                                                   #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell, TypeApplications, TypeOperators                                  #-}
 module Game.Dissidence where
 
 import Control.Lens
 
+import           Control.Monad.Error.Lens           (throwing)
 import           Control.Monad.Except               (ExceptT, runExceptT)
 import           Control.Monad.IO.Class             (MonadIO, liftIO)
 import           Control.Monad.Reader               (ReaderT, runReaderT)
@@ -11,20 +12,28 @@ import qualified Data.ByteString.Lazy.Char8         as C8
 import           Data.Generics.Product              (field)
 import           Database.SQLite.Simple             (Connection)
 import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
+import           GHC.Generics                       (Generic)
 import           Network.Wai.Handler.Warp           (run)
 import           Servant
 
-import Game.Dissidence.Config    (load)
-import Game.Dissidence.Db        (DbConstraints, initDb)
-import Game.Dissidence.Env       (Env, configToEnv, withEnvDbConnection)
-import Game.Dissidence.GameState (GameState, PlayerId (..), newGame)
-
+import Game.Dissidence.Config (load)
+import Game.Dissidence.Db     (AsSQLiteResponse (..), ChatLine, DbConstraints, DbGameState, GameId (..),
+                               NewChatLine, Posix, initDb, insertChatLine, selectChatLines, selectGameState)
+import Game.Dissidence.Env    (Env, configToEnv, withEnvDbConnection)
 
 type ChatApi =
   QueryParam "since" Posix :> Get '[JSON] [ChatLine]
   :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
 
-type GameApi = Get '[JSON] GameState
+type GameApi = Get '[JSON] DbGameState
+
+data AppError = AppServantErr ServantErr | AppDbError SQLiteResponse deriving (Show, Generic)
+makeClassyPrisms ''AppError
+
+instance AsSQLiteResponse AppError where
+  _SQLiteResponse = _AppDbError . _SQLiteResponse
+
+type AppConstraints e r m = (DbConstraints e r m, AsAppError e)
 
 type Api = "api" :>
   ("lobby" :> ChatApi
@@ -34,39 +43,42 @@ type Api = "api" :>
 api :: Proxy Api
 api = Proxy
 
-server :: DbConstraints e r m => ServerT Api m
+server :: AppConstraints e r m => ServerT Api m
 server = (globalChatGet :<|> globalChatAppend) :<|> gameGet
 
-globalChatGet :: DbConstraints e r m => Maybe Posix -> m [ChatLine]
-globalChatGet _ = pure []
+globalChatGet :: AppConstraints e r m => Maybe Posix -> m [ChatLine]
+globalChatGet _ = selectChatLines Nothing
 
-globalChatAppend :: DbConstraints e r m => NewChatLine -> m ()
-globalChatAppend _ = pure ()
+globalChatAppend :: AppConstraints e r m => NewChatLine -> m ()
+globalChatAppend = insertChatLine
 
-gameGet :: DbConstraints e r m => m GameState
-gameGet = pure (newGame (PlayerId "P1"))
+gameGet :: AppConstraints e r m => m DbGameState
+gameGet = do
+  gMay <- selectGameState (GameId 1)
+  maybe (throwing _AppServantErr err404) pure gMay
 
 app :: Env -> Application
 app e = serve api (hoistServer api (appHandler e) server)
 
-runContext :: MonadIO m => Env -> ExceptT SQLiteResponse (ReaderT Connection IO) a -> m (Either SQLiteResponse a)
-runContext e = liftIO . withEnvDbConnection e . runReaderT . runExceptT
+runDbContext :: (AsSQLiteResponse e, MonadIO m) => Env -> ExceptT e (ReaderT Connection IO) a -> m (Either e a)
+runDbContext e = liftIO . withEnvDbConnection e . runReaderT . runExceptT
 
-appHandler :: Env -> ExceptT SQLiteResponse (ReaderT Connection IO) a -> Handler a
+appHandler :: Env -> ExceptT AppError (ReaderT Connection IO) a -> Handler a
 appHandler e prog = do
-  res <- runContext e prog
+  res <- runDbContext e prog
   case res of
-    Left err -> throwError $ err500 { errBody = "Database error: " <> C8.pack (show err) }
-    Right a  -> pure a
+    Left (AppDbError err)    -> throwError $ err500 { errBody = "Database error: " <> C8.pack (show err) }
+    Left (AppServantErr err) -> throwError err
+    Right a                  -> pure a
 
 runApp :: IO ()
 runApp = do
   c  <- load "./config" -- TODO: Opts for path
   e  <- configToEnv c
   putStrLn $ "Opening/Initialising sqlite database " <> (e ^. field @"dbPath")
-  initRes <- runContext e initDb
+  initRes <- runDbContext e initDb
   case initRes of
-    Left err -> error $ "DB Failed to initialise: " <> (show err)
+    Left (err ::SQLiteResponse) -> error $ "DB Failed to initialise: " <> (show err)
     Right _  -> do
       let port = c ^. field @"port" . to fromIntegral
       putStrLn $ "Starting server on port " <> (show port)

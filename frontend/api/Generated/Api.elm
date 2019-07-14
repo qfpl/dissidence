@@ -23,16 +23,29 @@ jsonDecPosix = Json.Decode.map Time.millisToPosix Json.Decode.int
 jsonEncPosix : Posix -> Value
 jsonEncPosix = posixToMillis >> Json.Encode.int
 
+type alias GameId  = Int
+
+jsonDecGameId : Json.Decode.Decoder ( GameId )
+jsonDecGameId =
+    Json.Decode.int
+
+jsonEncGameId : GameId -> Value
+jsonEncGameId  val = Json.Encode.int val
+
+
+
 type alias ChatLine  =
    { chatLineTime: Posix
+   , chatLineGameId: (Maybe GameId)
    , chatLineUsername: String
    , chatLineText: String
    }
 
 jsonDecChatLine : Json.Decode.Decoder ( ChatLine )
 jsonDecChatLine =
-   Json.Decode.succeed (\pchatLineTime pchatLineUsername pchatLineText -> {chatLineTime = pchatLineTime, chatLineUsername = pchatLineUsername, chatLineText = pchatLineText})
+   Json.Decode.succeed (\pchatLineTime pchatLineGameId pchatLineUsername pchatLineText -> {chatLineTime = pchatLineTime, chatLineGameId = pchatLineGameId, chatLineUsername = pchatLineUsername, chatLineText = pchatLineText})
    |> required "chatLineTime" (jsonDecPosix)
+   |> fnullable "chatLineGameId" (jsonDecGameId)
    |> required "chatLineUsername" (Json.Decode.string)
    |> required "chatLineText" (Json.Decode.string)
 
@@ -40,6 +53,7 @@ jsonEncChatLine : ChatLine -> Value
 jsonEncChatLine  val =
    Json.Encode.object
    [ ("chatLineTime", jsonEncPosix val.chatLineTime)
+   , ("chatLineGameId", (maybeEncode (jsonEncGameId)) val.chatLineGameId)
    , ("chatLineUsername", Json.Encode.string val.chatLineUsername)
    , ("chatLineText", Json.Encode.string val.chatLineText)
    ]
@@ -47,20 +61,23 @@ jsonEncChatLine  val =
 
 
 type alias NewChatLine  =
-   { newChatLineUsername: String
+   { newChatGameId: (Maybe GameId)
+   , newChatLineUsername: String
    , newChatLineText: String
    }
 
 jsonDecNewChatLine : Json.Decode.Decoder ( NewChatLine )
 jsonDecNewChatLine =
-   Json.Decode.succeed (\pnewChatLineUsername pnewChatLineText -> {newChatLineUsername = pnewChatLineUsername, newChatLineText = pnewChatLineText})
+   Json.Decode.succeed (\pnewChatGameId pnewChatLineUsername pnewChatLineText -> {newChatGameId = pnewChatGameId, newChatLineUsername = pnewChatLineUsername, newChatLineText = pnewChatLineText})
+   |> fnullable "newChatGameId" (jsonDecGameId)
    |> required "newChatLineUsername" (Json.Decode.string)
    |> required "newChatLineText" (Json.Decode.string)
 
 jsonEncNewChatLine : NewChatLine -> Value
 jsonEncNewChatLine  val =
    Json.Encode.object
-   [ ("newChatLineUsername", Json.Encode.string val.newChatLineUsername)
+   [ ("newChatGameId", (maybeEncode (jsonEncGameId)) val.newChatGameId)
+   , ("newChatLineUsername", Json.Encode.string val.newChatLineUsername)
    , ("newChatLineText", Json.Encode.string val.newChatLineText)
    ]
 
@@ -117,14 +134,15 @@ jsonDecRole =
             [ ("CompositionalCrusaders", Json.Decode.lazy (\_ -> Json.Decode.map CompositionalCrusaders (Json.Decode.maybe (jsonDecCrusaderRole))))
             , ("SneakySideEffects", Json.Decode.lazy (\_ -> Json.Decode.map SneakySideEffects (Json.Decode.maybe (jsonDecSideEffectRole))))
             ]
-    in  decodeSumObjectWithSingleField  "Role" jsonDecDictRole
+        jsonDecObjectSetRole = Set.fromList []
+    in  decodeSumTaggedObject "Role" "tag" "contents" jsonDecDictRole jsonDecObjectSetRole
 
 jsonEncRole : Role -> Value
 jsonEncRole  val =
     let keyval v = case v of
                     CompositionalCrusaders v1 -> ("CompositionalCrusaders", encodeValue ((maybeEncode (jsonEncCrusaderRole)) v1))
                     SneakySideEffects v1 -> ("SneakySideEffects", encodeValue ((maybeEncode (jsonEncSideEffectRole)) v1))
-    in encodeSumObjectWithSingleField keyval val
+    in encodeSumTaggedObject "tag" "contents" keyval val
 
 
 
@@ -170,7 +188,8 @@ jsonDecEndCondition =
             , ("SideEffectsWin", Json.Decode.lazy (\_ -> Json.Decode.map SideEffectsWin (jsonDecSideEffectWinCondition)))
             , ("GameCancelled", Json.Decode.lazy (\_ -> Json.Decode.succeed GameCancelled))
             ]
-    in  decodeSumObjectWithSingleField  "EndCondition" jsonDecDictEndCondition
+        jsonDecObjectSetEndCondition = Set.fromList []
+    in  decodeSumTaggedObject "EndCondition" "tag" "contents" jsonDecDictEndCondition jsonDecObjectSetEndCondition
 
 jsonEncEndCondition : EndCondition -> Value
 jsonEncEndCondition  val =
@@ -178,7 +197,7 @@ jsonEncEndCondition  val =
                     CrusadersWin  -> ("CrusadersWin", encodeValue (Json.Encode.list identity []))
                     SideEffectsWin v1 -> ("SideEffectsWin", encodeValue (jsonEncSideEffectWinCondition v1))
                     GameCancelled  -> ("GameCancelled", encodeValue (Json.Encode.list identity []))
-    in encodeSumObjectWithSingleField keyval val
+    in encodeSumTaggedObject "tag" "contents" keyval val
 
 
 
@@ -214,7 +233,8 @@ jsonDecProposalState =
             , ("Proposed", Json.Decode.lazy (\_ -> Json.Decode.map2 Proposed (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.bool)))))))
             , ("Approved", Json.Decode.lazy (\_ -> Json.Decode.map2 Approved (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.bool)))))))
             ]
-    in  decodeSumObjectWithSingleField  "ProposalState" jsonDecDictProposalState
+        jsonDecObjectSetProposalState = Set.fromList []
+    in  decodeSumTaggedObject "ProposalState" "tag" "contents" jsonDecDictProposalState jsonDecObjectSetProposalState
 
 jsonEncProposalState : ProposalState -> Value
 jsonEncProposalState  val =
@@ -222,7 +242,7 @@ jsonEncProposalState  val =
                     NoProposal  -> ("NoProposal", encodeValue (Json.Encode.list identity []))
                     Proposed v1 v2 -> ("Proposed", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(Json.Encode.bool) t2])) v2]))
                     Approved v1 v2 -> ("Approved", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(Json.Encode.bool) t2])) v2]))
-    in encodeSumObjectWithSingleField keyval val
+    in encodeSumTaggedObject "tag" "contents" keyval val
 
 
 
@@ -261,7 +281,8 @@ jsonDecRoundResult =
             , ("RoundFailure", Json.Decode.lazy (\_ -> Json.Decode.map RoundFailure (Json.Decode.int)))
             , ("RoundNoConsensus", Json.Decode.lazy (\_ -> Json.Decode.succeed RoundNoConsensus))
             ]
-    in  decodeSumObjectWithSingleField  "RoundResult" jsonDecDictRoundResult
+        jsonDecObjectSetRoundResult = Set.fromList []
+    in  decodeSumTaggedObject "RoundResult" "tag" "contents" jsonDecDictRoundResult jsonDecObjectSetRoundResult
 
 jsonEncRoundResult : RoundResult -> Value
 jsonEncRoundResult  val =
@@ -269,7 +290,7 @@ jsonEncRoundResult  val =
                     RoundSuccess v1 -> ("RoundSuccess", encodeValue (Json.Encode.int v1))
                     RoundFailure v1 -> ("RoundFailure", encodeValue (Json.Encode.int v1))
                     RoundNoConsensus  -> ("RoundNoConsensus", encodeValue (Json.Encode.list identity []))
-    in encodeSumObjectWithSingleField keyval val
+    in encodeSumTaggedObject "tag" "contents" keyval val
 
 
 
@@ -369,7 +390,8 @@ jsonDecGameState =
             , ("Complete", Json.Decode.lazy (\_ -> Json.Decode.map3 Complete (Json.Decode.index 0 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (jsonDecRole))))) (Json.Decode.index 1 (jsonDecEndCondition)) (Json.Decode.index 2 (Json.Decode.list (jsonDecHistoricRoundState)))))
             , ("Aborted", Json.Decode.lazy (\_ -> Json.Decode.map Aborted (jsonDecPlayerId)))
             ]
-    in  decodeSumObjectWithSingleField  "GameState" jsonDecDictGameState
+        jsonDecObjectSetGameState = Set.fromList []
+    in  decodeSumTaggedObject "GameState" "tag" "contents" jsonDecDictGameState jsonDecObjectSetGameState
 
 jsonEncGameState : GameState -> Value
 jsonEncGameState  val =
@@ -380,7 +402,27 @@ jsonEncGameState  val =
                     FiringRound v1 v2 -> ("FiringRound", encodeValue (Json.Encode.list identity [(Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(jsonEncRole) t2])) v1, (Json.Encode.list jsonEncHistoricRoundState) v2]))
                     Complete v1 v2 v3 -> ("Complete", encodeValue (Json.Encode.list identity [(Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(jsonEncRole) t2])) v1, jsonEncEndCondition v2, (Json.Encode.list jsonEncHistoricRoundState) v3]))
                     Aborted v1 -> ("Aborted", encodeValue (jsonEncPlayerId v1))
-    in encodeSumObjectWithSingleField keyval val
+    in encodeSumTaggedObject "tag" "contents" keyval val
+
+
+
+type alias DbGameState  =
+   { dbGameStateId: GameId
+   , dbGameState: GameState
+   }
+
+jsonDecDbGameState : Json.Decode.Decoder ( DbGameState )
+jsonDecDbGameState =
+   Json.Decode.succeed (\pdbGameStateId pdbGameState -> {dbGameStateId = pdbGameStateId, dbGameState = pdbGameState})
+   |> required "dbGameStateId" (jsonDecGameId)
+   |> required "dbGameState" (jsonDecGameState)
+
+jsonEncDbGameState : DbGameState -> Value
+jsonEncDbGameState  val =
+   Json.Encode.object
+   [ ("dbGameStateId", jsonEncGameId val.dbGameStateId)
+   , ("dbGameState", jsonEncGameState val.dbGameState)
+   ]
 
 
 getApiLobby : (Maybe Int) -> (Result Http.Error  ((List ChatLine))  -> msg) -> Cmd msg
@@ -446,7 +488,7 @@ postApiLobby body toMsg =
                 Nothing
             }
 
-getApiGame : (Result Http.Error  (GameState)  -> msg) -> Cmd msg
+getApiGame : (Result Http.Error  (DbGameState)  -> msg) -> Cmd msg
 getApiGame toMsg =
     let
         params =
@@ -468,7 +510,7 @@ getApiGame toMsg =
             , body =
                 Http.emptyBody
             , expect =
-                Http.expectJson toMsg jsonDecGameState
+                Http.expectJson toMsg jsonDecDbGameState
             , timeout =
                 Nothing
             , tracker =

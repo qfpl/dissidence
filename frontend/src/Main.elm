@@ -30,7 +30,7 @@ type alias Model =
     { chatLines : List BE.ChatLine
     , chatErr : Maybe Http.Error
     , newChatText : String
-    , gameState : Maybe BE.GameState
+    , gameState : Maybe BE.DbGameState
     , gameStateErr : Maybe Http.Error
     }
 
@@ -52,7 +52,7 @@ initModel =
 
 type Msg
     = FetchChat
-    | SetGame (Result Http.Error BE.GameState)
+    | SetGame (Result Http.Error BE.DbGameState)
     | SetChatLines (Result Http.Error (List BE.ChatLine))
     | SetNewChatText String
     | SubmitNewChatLine
@@ -114,7 +114,7 @@ update action model =
         SubmitNewChatLine ->
             ( model
             , BE.postApiLobby
-                { newChatLineUsername = "user", newChatLineText = model.newChatText }
+                { newChatGameId = Nothing, newChatLineUsername = "user", newChatLineText = model.newChatText }
                 SubmitNewChatLineRes
             )
 
@@ -144,6 +144,23 @@ view model =
             []
             [ H.h1 [] [ H.text "GameState" ]
             , H.text (Maybe.withDefault "" (Maybe.map httpErrorToStr model.gameStateErr))
+            , case model.gameState of
+                Just dbGs ->
+                    case dbGs.dbGameState of
+                        BE.WaitingForPlayers o ps ->
+                            H.div []
+                                [ H.text "WAITING FOR PLAYERS"
+                                , H.text " Game id: "
+                                , H.text (String.fromInt dbGs.dbGameStateId)
+                                , H.text " OWNER: "
+                                , H.text o
+                                ]
+
+                        _ ->
+                            H.text "UNKNOWN GAME STATE"
+
+                _ ->
+                    H.text "NO GAME STATE"
             ]
         , H.div
             []

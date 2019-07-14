@@ -1,35 +1,69 @@
 {-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, FlexibleContexts, NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables, TemplateHaskell, TypeApplications   #-}
+{-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
 
 module Game.Dissidence.Db
   ( initDb
   , DbConstraints
+  , selectChatLines
+  , insertChatLine
+  , selectGameState
+  , insertGameState
+  , updateGameState
 --  , insertUser
 --  , upsertGameState
 --  , selectUser
  -- , selectGameState
   , runDb
+  , ChatLine
+  , NewChatLine
+  , DbGameState
+  , AsSQLiteResponse(..)
+  , GameId(..)
+  , Posix
   ) where
 
 import Control.Lens
 
+import Control.Exception                  (throw)
+import Control.Lens.Cons                  (_head)
 import Control.Monad                      ((<=<))
 import Control.Monad.Error.Lens           (throwing)
 import Control.Monad.Except               (MonadError)
 import Control.Monad.IO.Class             (MonadIO, liftIO)
 import Control.Monad.Reader               (MonadReader, ask)
+import Data.Aeson                         (FromJSON, ToJSON, eitherDecode, encode)
 import Data.Foldable                      (traverse_)
-import Data.Int                           (Int64)
 import Data.Text                          (Text)
-import Database.SQLite.Simple             (Connection, Query, ToRow, execute, execute_, lastInsertRowId)
+import Database.SQLite.Simple             (Connection, FromRow (..), Only (..), Query,
+                                           ResultError (ConversionFailed), SQLData, ToRow (..), execute,
+                                           execute_, field, lastInsertRowId, query, query_)
+import Database.SQLite.Simple.FromField   (FromField (..))
+import Database.SQLite.Simple.Internal    (RowParser)
+import Database.SQLite.Simple.ToField     (ToField (..))
 import Database.SQLite.SimpleErrors       (runDBAction)
 import Database.SQLite.SimpleErrors.Types (SQLiteResponse)
 import GHC.Generics                       (Generic)
-import Servant.Elm                        (defaultOptions, deriveBoth)
+import Servant.Elm                        (deriveBoth)
+
+import Game.Dissidence.AesonOptions (ourAesonOptions)
+import Game.Dissidence.GameState    (GameState, PlayerId (PlayerId), newGame)
+
+toAesonField :: ToJSON a => a -> SQLData
+toAesonField = toField . encode
+
+aesonField :: FromJSON a => RowParser a
+aesonField = field >>= (either (throw . (ConversionFailed "TEXT" "Jsony Blob") . show) pure . eitherDecode)
 
 type Posix = Integer
 
-newtype GameId = GameId { unGameId :: Integer } deriving (Show, Generic)
+newtype GameId = GameId { unGameId :: Integer } deriving (Eq, Ord, Show, Generic)
+
+instance ToField GameId where
+  toField = toField . unGameId
+
+instance FromField GameId where
+  fromField = fmap GameId . fromField
 
 data ChatLine = ChatLine
   { chatLineTime     :: Posix
@@ -38,14 +72,34 @@ data ChatLine = ChatLine
   , chatLineText     :: Text
   } deriving (Show, Generic)
 
+instance FromRow ChatLine where
+  fromRow = ChatLine <$> field <*> field <*> field <*> field
+
 data NewChatLine = NewChatLine
-  { newChatLineUsername :: Text
+  { newChatGameId       :: Maybe GameId
+  , newChatLineUsername :: Text
   , newChatLineText     :: Text
   } deriving (Show, Generic)
 
+instance ToRow NewChatLine where
+  toRow (NewChatLine gId u t) = [toField gId, toField u, toField t]
+
+data DbGameState = DbGameState
+  { dbGameStateId :: GameId
+  , dbGameState   :: GameState
+  } deriving (Show, Generic)
+
+instance FromRow DbGameState where
+  fromRow = DbGameState <$> (GameId <$> field) <*> aesonField
+
+newtype NewDbGameState = NewDbGameState { unNewDbGameState :: GameState } deriving (Show, Generic)
+
+instance ToRow NewDbGameState where
+  toRow (NewDbGameState gs) = [toAesonField gs]
+
 concat <$> mapM
-  (deriveBoth defaultOptions)
-  [''GameId, ''ChatLine, ''NewChatLine]
+  (deriveBoth ourAesonOptions)
+  [''GameId, ''DbGameState, ''NewDbGameState, ''ChatLine, ''NewChatLine]
 
 class HasConnection s where
   connection :: Lens' s Connection
@@ -64,7 +118,20 @@ type DbConstraints e r m =
   )
 
 selectChatLines :: DbConstraints e r m => Maybe GameId -> m [ChatLine]
-selectChatLines = _
+selectChatLines Nothing = query_' "SELECT epoch, game_id, username, text FROM chat_line"
+selectChatLines (Just gId) = query' "SELECT epoch, game_id, username, text FROM chat_line WHERE game_id = ?" (Only gId)
+
+insertChatLine :: DbConstraints e r m => NewChatLine -> m ()
+insertChatLine = execute' "INSERT INTO chat_line (game_id,username, text) VALUES (?,?,?)"
+
+selectGameState :: DbConstraints e r m => GameId -> m (Maybe DbGameState)
+selectGameState = fmap (^?_head) . query' "SELECT id, data FROM game_state WHERE id = ?" . Only
+
+updateGameState :: DbConstraints e r m => DbGameState -> m ()
+updateGameState (DbGameState gId d)= execute' "UPDATE game_state SET data = ? WHERE id = ?" (toAesonField d, gId)
+
+insertGameState :: DbConstraints e r m => NewDbGameState -> m GameId
+insertGameState = fmap GameId . insert "INSERT INTO game_state (data) VALUES (?)"
 
 initDb ::
   DbConstraints e r m
@@ -74,46 +141,50 @@ initDb =
     enableForeignKeys = "PRAGMA foreign_keys = ON;"
     qGameState = "CREATE TABLE IF NOT EXISTS game_state\
       \( id INTEGER PRIMARY KEY\
-      \, timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\
+      \, epoch INTEGER NOT NULL DEFAULT (strftime('%s',CURRENT_TIMESTAMP))\
       \, data TEXT NOT NULL\
       \)"
     qChatLines = "CREATE TABLE IF NOT EXISTS chat_line\
       \( id INTEGER PRIMARY KEY\
-      \, timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\
+      \, epoch INTEGER NOT NULL DEFAULT (strftime('%s',CURRENT_TIMESTAMP))\
       \, game_id INTEGER REFERENCES game_state(id)\
+      \, username TEXT REFERENCES user(id)\
       \, text TEXT NOT NULL\
       \)"
     qUsers = "CREATE TABLE IF NOT EXISTS user\
-      \( id INTEGER PRIMARY KEY\
-      \, username TEXT NOT NULL UNIQUE\
+      \( username TEXT NOT NULL PRIMARY KEY \
       \)"
-  in
+  in do
     withConnIO $ \conn ->
-      traverse_ (execute_ conn) [
-        enableForeignKeys
-      , qGameState
-      , qChatLines
-      , qUsers
-      ]
+      traverse_ (execute_ conn)
+        [ enableForeignKeys
+        , qGameState
+        , qChatLines
+        , qUsers
+        ]
+    _ <- insertGameState (NewDbGameState (newGame (PlayerId "Player1")))
+    pure ()
 
-_insert ::
+insert ::
   ( DbConstraints e r m
   , ToRow a
   )
   => Query
   -> a
-  -> m Int64
-_insert q a =
+  -> m Integer
+insert q a =
   withConnIO $ \conn -> do
     execute conn q a
-    lastInsertRowId conn
+    fromIntegral <$> lastInsertRowId conn
 
-_withConn ::
-  DbConstraints e r m
-  => (Connection -> m a)
-  -> m a
-_withConn f =
-  (f . view connection) =<< ask
+query_' :: (DbConstraints e r m, FromRow a) => Query -> m [a]
+query_' q = withConnIO (\c -> query_ c q)
+
+query' :: (DbConstraints e r m, FromRow a, ToRow i) => Query -> i -> m [a]
+query' q i = withConnIO (\c -> query c q i)
+
+execute' :: (DbConstraints e r m, ToRow i) => Query -> i -> m ()
+execute' q i = withConnIO (\c -> execute c q i)
 
 withConnIO ::
   DbConstraints e r m

@@ -25,6 +25,7 @@ library
                    , Game.Dissidence.GameState.Internal
   other-modules:     Game.Dissidence.Config
                    , Game.Dissidence.Env
+                   , Game.Dissidence.AesonOptions
   build-depends:       base ^>=4.12.0.0
                      , aeson
                      , bytestring

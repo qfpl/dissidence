@@ -1,13 +1,15 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings #-}
 module Main where
 
-import qualified Data.Text                 as T
+import qualified Data.Text   as T
 import           Elm.TyRep
-import           Game.Dissidence
-import           Game.Dissidence.GameState
 import           Servant.Elm
 
 import Debug.Trace
+
+import Game.Dissidence
+import Game.Dissidence.Db
+import Game.Dissidence.GameState
 
 myElmOpts :: ElmOptions
 myElmOpts = defElmOptions
@@ -49,7 +51,8 @@ main =
     ]
     myElmImports
     "../frontend/api/"
-    [ DefineElm (Proxy :: Proxy ChatLine)
+    [ DefineElm (Proxy :: Proxy GameId)
+    , DefineElm (Proxy :: Proxy ChatLine)
     , DefineElm (Proxy :: Proxy NewChatLine)
     , DefineElm (Proxy :: Proxy PlayerId)
     , DefineElm (Proxy :: Proxy CrusaderRole)
@@ -66,5 +69,6 @@ main =
     , DefineElm (Proxy :: Proxy HistoricRoundState)
     , DefineElm (Proxy :: Proxy RoundsState)
     , DefineElm (Proxy :: Proxy GameState)
+    , DefineElm (Proxy :: Proxy DbGameState)
     ]
     (Proxy :: Proxy Api)
