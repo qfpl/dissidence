@@ -1,22 +1,18 @@
 * TODO
+** New User route
+** New user UI / Login UI
+** Hide new chat input unless logged in
 ** Refactor into sub chat component                                :Frontend:
 ** Wire up the Since Query param                           :Frontend:Backend:
-** User select to get a session key                        :Frontend:Backend:
-** Pure GameState Model + Tests                                     :Backend:
-*** Waiting for characters
-**** Waiting for minimum of 5 people before game can start
-*** Pregame
-**** Get dealt roles
-**** Side-effects Visibility round
-**** FP Expert Visibility round
-**** Leadership Choice
-*** Rounds
-**** Propose team
-**** Vote on team
-**** If successful, secret ballot on mission success, move leader, next round or move to end game if 3 wins for either side-effects or crusaders.
-**** If unsuccessful, move leader and retry
-*** End Game
-**** If Crusaders won game, Pointy Haired Boss fires someone . If FP Expert, side-effects win.
+** New Game Button
+** Waiting for Players UI
+** Censor server output
+** Pregame UI
+** Team Proposal UI
+** Team Voting UI
+** Project Voting UI
+** Firing Round UI
+** GameEnded UI
 ** Proper build into a single haskell server that serves up the elm html. :Backend:
 ** Setup instructions                                                  :Docs:
 ** Cut into workshop                                                   :Docs:
