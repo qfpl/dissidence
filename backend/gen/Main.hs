@@ -36,6 +36,11 @@ myElmImports = T.unlines
   , "    Just True -> \"1\""
   , "    Just False -> \"0\""
   , ""
+  , "jsonDecBool : Json.Decode.Decoder Bool"
+  , "jsonDecBool = Json.Decode.bool"
+  , "jsonEncBool : Bool -> Value"
+  , "jsonEncBool = Json.Encode.bool"
+  , ""
   , "jsonDecPosix : Json.Decode.Decoder Posix"
   , "jsonDecPosix = Json.Decode.map Time.millisToPosix Json.Decode.int"
   , "jsonEncPosix : Posix -> Value"
@@ -69,6 +74,7 @@ main =
     , DefineElm (Proxy :: Proxy HistoricRoundState)
     , DefineElm (Proxy :: Proxy RoundsState)
     , DefineElm (Proxy :: Proxy GameState)
+    , DefineElm (Proxy :: Proxy DbUser)
     , DefineElm (Proxy :: Proxy DbGameState)
     ]
     (Proxy :: Proxy Api)

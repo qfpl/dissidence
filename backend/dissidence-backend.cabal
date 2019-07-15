@@ -35,6 +35,7 @@ library
                      , generic-lens
                      , lens
                      , mtl
+                     , pwstore-fast
                      , random-extras
                      , rvar
                      , random-fu

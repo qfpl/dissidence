@@ -4,7 +4,7 @@ module Game.Dissidence where
 
 import Control.Lens
 
-import           Control.Monad.Error.Lens           (throwing)
+--import           Control.Monad.Error.Lens           (throwing)
 import           Control.Monad.Except               (ExceptT, runExceptT)
 import           Control.Monad.IO.Class             (MonadIO, liftIO)
 import           Control.Monad.Reader               (ReaderT, runReaderT)
@@ -17,34 +17,50 @@ import           Network.Wai.Handler.Warp           (run)
 import           Servant
 
 import Game.Dissidence.Config (load)
-import Game.Dissidence.Db     (AsSQLiteResponse (..), ChatLine, DbConstraints, DbGameState, GameId (..),
-                               NewChatLine, Posix, initDb, insertChatLine, selectChatLines, selectGameState)
+import Game.Dissidence.Db     (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
+                               DbConstraints, DbError (..), DbGameState, DbUser, GameId (..), NewChatLine,
+                               Posix, checkLogin, initDb, insertChatLine, insertUser, selectChatLines,
+                               selectGameState)
 import Game.Dissidence.Env    (Env, configToEnv, withEnvDbConnection)
 
-type ChatApi =
-  QueryParam "since" Posix :> Get '[JSON] [ChatLine]
-  :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
-
-type GameApi = Get '[JSON] DbGameState
-
-data AppError = AppServantErr ServantErr | AppDbError SQLiteResponse deriving (Show, Generic)
+data AppError = AppServantErr ServantErr | AppDbError DbError deriving (Show, Generic)
 makeClassyPrisms ''AppError
+
+instance AsDbError AppError where
+  _DbError = _AppDbError . _DbError
+
+instance AsDbLogicError AppError where
+  _DbLogicError = _AppDbError . _DbLogicError
 
 instance AsSQLiteResponse AppError where
   _SQLiteResponse = _AppDbError . _SQLiteResponse
 
 type AppConstraints e r m = (DbConstraints e r m, AsAppError e)
 
+type ChatApi
+  =    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
+  :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
+
+type GameApi = Get '[JSON] DbGameState
+
+type UserApi
+  =    ReqBody '[JSON] DbUser :> Post '[JSON] ()
+
+type LoginApi
+  =    ReqBody '[JSON] DbUser :> Post '[JSON] Bool
+
 type Api = "api" :>
   ("lobby" :> ChatApi
   :<|> "game" :> GameApi
+  :<|> "user" :> UserApi
+  :<|> "login" :> LoginApi
   )
 
 api :: Proxy Api
 api = Proxy
 
 server :: AppConstraints e r m => ServerT Api m
-server = (globalChatGet :<|> globalChatAppend) :<|> gameGet
+server = (globalChatGet :<|> globalChatAppend) :<|> gameGet :<|> userPost :<|> loginPost
 
 globalChatGet :: AppConstraints e r m => Maybe Posix -> m [ChatLine]
 globalChatGet _ = selectChatLines Nothing
@@ -53,9 +69,14 @@ globalChatAppend :: AppConstraints e r m => NewChatLine -> m ()
 globalChatAppend = insertChatLine
 
 gameGet :: AppConstraints e r m => m DbGameState
-gameGet = do
-  gMay <- selectGameState (GameId 1)
-  maybe (throwing _AppServantErr err404) pure gMay
+gameGet = selectGameState (GameId 1)
+
+userPost :: AppConstraints e r m => DbUser -> m ()
+userPost = insertUser
+
+-- TODO: Actually do proper auth stuff
+loginPost :: AppConstraints e r m => DbUser -> m Bool
+loginPost = checkLogin
 
 app :: Env -> Application
 app e = serve api (hoistServer api (appHandler e) server)

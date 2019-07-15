@@ -18,6 +18,11 @@ maybeBoolToIntStr mx =
     Just True -> "1"
     Just False -> "0"
 
+jsonDecBool : Json.Decode.Decoder Bool
+jsonDecBool = Json.Decode.bool
+jsonEncBool : Bool -> Value
+jsonEncBool = Json.Encode.bool
+
 jsonDecPosix : Json.Decode.Decoder Posix
 jsonDecPosix = Json.Decode.map Time.millisToPosix Json.Decode.int
 jsonEncPosix : Posix -> Value
@@ -406,6 +411,26 @@ jsonEncGameState  val =
 
 
 
+type alias DbUser  =
+   { dbUsername: String
+   , dbUserPassword: String
+   }
+
+jsonDecDbUser : Json.Decode.Decoder ( DbUser )
+jsonDecDbUser =
+   Json.Decode.succeed (\pdbUsername pdbUserPassword -> {dbUsername = pdbUsername, dbUserPassword = pdbUserPassword})
+   |> required "dbUsername" (Json.Decode.string)
+   |> required "dbUserPassword" (Json.Decode.string)
+
+jsonEncDbUser : DbUser -> Value
+jsonEncDbUser  val =
+   Json.Encode.object
+   [ ("dbUsername", Json.Encode.string val.dbUsername)
+   , ("dbUserPassword", Json.Encode.string val.dbUserPassword)
+   ]
+
+
+
 type alias DbGameState  =
    { dbGameStateId: GameId
    , dbGameState: GameState
@@ -511,6 +536,67 @@ getApiGame toMsg =
                 Http.emptyBody
             , expect =
                 Http.expectJson toMsg jsonDecDbGameState
+            , timeout =
+                Nothing
+            , tracker =
+                Nothing
+            }
+
+postApiUser : DbUser -> (Result Http.Error  (())  -> msg) -> Cmd msg
+postApiUser body toMsg =
+    let
+        params =
+            List.filterMap identity
+            (List.concat
+                [])
+    in
+        Http.request
+            { method =
+                "POST"
+            , headers =
+                []
+            , url =
+                Url.Builder.crossOrigin ""
+                    [ "api"
+                    , "user"
+                    ]
+                    params
+            , body =
+                Http.jsonBody (jsonEncDbUser body)
+            , expect =
+                Http.expectString 
+                     (\x -> case x of
+                     Err e -> toMsg (Err e)
+                     Ok _ -> toMsg (Ok ()))
+            , timeout =
+                Nothing
+            , tracker =
+                Nothing
+            }
+
+postApiLogin : DbUser -> (Result Http.Error  (Bool)  -> msg) -> Cmd msg
+postApiLogin body toMsg =
+    let
+        params =
+            List.filterMap identity
+            (List.concat
+                [])
+    in
+        Http.request
+            { method =
+                "POST"
+            , headers =
+                []
+            , url =
+                Url.Builder.crossOrigin ""
+                    [ "api"
+                    , "login"
+                    ]
+                    params
+            , body =
+                Http.jsonBody (jsonEncDbUser body)
+            , expect =
+                Http.expectJson toMsg jsonDecBool
             , timeout =
                 Nothing
             , tracker =

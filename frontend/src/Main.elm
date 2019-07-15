@@ -27,165 +27,46 @@ main =
 
 
 type alias Model =
-    { chatLines : List BE.ChatLine
-    , chatErr : Maybe Http.Error
-    , newChatText : String
-    , gameState : Maybe BE.DbGameState
-    , gameStateErr : Maybe Http.Error
+    { loggedInUsername : Maybe String
     }
 
 
 init : ( Model, Cmd Msg )
 init =
-    ( initModel, Cmd.batch [ BE.getApiLobby Nothing SetChatLines, BE.getApiGame SetGame ] )
+    ( initModel, Cmd.batch [] )
 
 
 initModel : Model
 initModel =
-    { chatLines = []
-    , chatErr = Nothing
-    , newChatText = ""
-    , gameState = Nothing
-    , gameStateErr = Nothing
+    { loggedInUsername = Nothing
     }
 
 
 type Msg
-    = FetchChat
-    | SetGame (Result Http.Error BE.DbGameState)
-    | SetChatLines (Result Http.Error (List BE.ChatLine))
-    | SetNewChatText String
-    | SubmitNewChatLine
-    | SubmitNewChatLineRes (Result Http.Error ())
-    | UrlRequest Browser.UrlRequest
+    = UrlRequest Browser.UrlRequest
     | SetUrl Url.Url
-    | Tick Time.Posix
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
     case action of
-        FetchChat ->
-            ( model, BE.getApiLobby Nothing SetChatLines )
-
-        SetGame res ->
-            ( { model
-                | gameState =
-                    case res of
-                        Ok gs ->
-                            Just gs
-
-                        Err _ ->
-                            model.gameState
-                , gameStateErr =
-                    case res of
-                        Ok _ ->
-                            Nothing
-
-                        Err e ->
-                            Just e
-              }
-            , Cmd.none
-            )
-
-        SetChatLines res ->
-            ( { model
-                | chatLines =
-                    case res of
-                        Ok ls ->
-                            ls
-
-                        Err _ ->
-                            model.chatLines
-                , chatErr =
-                    case res of
-                        Ok _ ->
-                            Nothing
-
-                        Err e ->
-                            Just e
-              }
-            , Cmd.none
-            )
-
-        SetNewChatText t ->
-            ( { model | newChatText = t }, Cmd.none )
-
-        SubmitNewChatLine ->
-            ( model
-            , BE.postApiLobby
-                { newChatGameId = Nothing, newChatLineUsername = "user", newChatLineText = model.newChatText }
-                SubmitNewChatLineRes
-            )
-
-        SubmitNewChatLineRes _ ->
-            ( { model | newChatText = "" }, BE.getApiLobby Nothing SetChatLines )
-
         SetUrl _ ->
             ( model, Cmd.none )
 
         UrlRequest _ ->
             ( model, Cmd.none )
 
-        Tick _ ->
-            ( model, BE.getApiLobby Nothing SetChatLines )
-
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Time.every 1000 Tick
+    Sub.none
 
 
 view : Model -> Browser.Document Msg
 view model =
     { title = "Dissidence : Compositional Crusaders"
     , body =
-        [ H.div
-            []
-            [ H.h1 [] [ H.text "GameState" ]
-            , H.text (Maybe.withDefault "" (Maybe.map httpErrorToStr model.gameStateErr))
-            , case model.gameState of
-                Just dbGs ->
-                    case dbGs.dbGameState of
-                        BE.WaitingForPlayers o ps ->
-                            H.div []
-                                [ H.text "WAITING FOR PLAYERS"
-                                , H.text " Game id: "
-                                , H.text (String.fromInt dbGs.dbGameStateId)
-                                , H.text " OWNER: "
-                                , H.text o
-                                ]
-
-                        _ ->
-                            H.text "UNKNOWN GAME STATE"
-
-                _ ->
-                    H.text "NO GAME STATE"
-            ]
-        , H.div
-            []
-            ([ H.h1 [] [ H.text "Chat" ] ]
-                ++ List.map
-                    (\cl ->
-                        H.p []
-                            [ H.strong [] [ H.text cl.chatLineUsername ]
-                            , H.text ": "
-                            , H.text cl.chatLineText
-                            ]
-                    )
-                    model.chatLines
-            )
-        , H.p []
-            [ H.text (Maybe.withDefault "" (Maybe.map httpErrorToStr model.chatErr))
-            ]
-        , H.input
-            [ HA.placeholder "Enter Chat message"
-            , HA.value model.newChatText
-            , HE.onInput SetNewChatText
-            , onEnterPressed SubmitNewChatLine
-            ]
-            []
-        ]
+        [ H.div [] [] ]
     }
 
 
