@@ -1,12 +1,13 @@
 module Main exposing (main)
 
 import Browser
-import Generated.Api as BE
+import Browser.Navigation
 import Html as H
 import Html.Attributes as HA
 import Html.Events as HE
 import Http
 import Json.Decode as Json
+import Page.Login
 import Result
 import String
 import Task
@@ -14,10 +15,14 @@ import Time
 import Url
 
 
-main : Program () Model Msg
+type alias Flags =
+    ()
+
+
+main : Program Flags Model Msg
 main =
     Browser.application
-        { init = \_ _ _ -> init
+        { init = init
         , view = view
         , update = update
         , subscriptions = subscriptions
@@ -26,35 +31,44 @@ main =
         }
 
 
-type alias Model =
-    { loggedInUsername : Maybe String
-    }
+type Model
+    = Prelogin
+    | Login Page.Login.Model
 
 
-init : ( Model, Cmd Msg )
-init =
-    ( initModel, Cmd.batch [] )
+init : Flags -> Url.Url -> Browser.Navigation.Key -> ( Model, Cmd Msg )
+init _ url key =
+    let
+        ( m, c ) =
+            Page.Login.init
+    in
+    ( Login m, Cmd.map LoginMsg c )
 
 
 initModel : Model
 initModel =
-    { loggedInUsername = Nothing
-    }
+    Prelogin
 
 
 type Msg
     = UrlRequest Browser.UrlRequest
     | SetUrl Url.Url
+    | LoginMsg Page.Login.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
-    case action of
-        SetUrl _ ->
+    case ( action, model ) of
+        ( LoginMsg subMsg, Login subModel ) ->
+            Page.Login.update subMsg subModel |> updateWith Login LoginMsg
+
+        ( _, _ ) ->
             ( model, Cmd.none )
 
-        UrlRequest _ ->
-            ( model, Cmd.none )
+
+updateWith : (submodel -> Model) -> (submsg -> Msg) -> ( submodel, Cmd submsg ) -> ( Model, Cmd Msg )
+updateWith wrapModel wrapMsg ( subModel, subCmd ) =
+    ( wrapModel subModel, Cmd.map wrapMsg subCmd )
 
 
 subscriptions : Model -> Sub Msg
@@ -64,39 +78,14 @@ subscriptions model =
 
 view : Model -> Browser.Document Msg
 view model =
-    { title = "Dissidence : Compositional Crusaders"
-    , body =
-        [ H.div [] [] ]
-    }
+    case model of
+        Prelogin ->
+            { title = "Dissidence: Compositional Crusaders", body = [] }
+
+        Login lm ->
+            mapDocument LoginMsg (Page.Login.view lm)
 
 
-httpErrorToStr : Http.Error -> String
-httpErrorToStr err =
-    case err of
-        Http.BadUrl s ->
-            "Bad URL: " ++ s
-
-        Http.Timeout ->
-            "Timeout"
-
-        Http.NetworkError ->
-            "NetworkError"
-
-        Http.BadStatus s ->
-            "Bad Status" ++ String.fromInt s
-
-        Http.BadBody s ->
-            "Bad Body" ++ s
-
-
-onEnterPressed : msg -> H.Attribute msg
-onEnterPressed msg =
-    let
-        isEnter code =
-            if code == 13 then
-                Json.succeed msg
-
-            else
-                Json.fail ""
-    in
-    HE.on "keydown" (Json.andThen isEnter HE.keyCode)
+mapDocument : (subMsg -> Msg) -> Browser.Document subMsg -> Browser.Document Msg
+mapDocument f { title, body } =
+    { title = title, body = List.map (H.map f) body }
