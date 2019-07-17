@@ -1,7 +1,129 @@
-$font-stack:    Helvetica, sans-serif;
-$primary-color: #333;
+@font-face {
+  font-family: "Lora";
+  font-weight: 400;
+  font-style: normal;
+	src: url("./fonts/Lora/Lora-Regular.ttf") format("ttf");
+}
+@font-face {
+	font-family: "Lora";
+  font-weight: 400;
+  font-style: italic;
+	src: url("./fonts/Lora/Lora-RegularItalic.ttf") format("ttf");
+}
+@font-face {
+	font-family: "Lora";
+  font-weight: 700;
+  font-style: normal;
+	src: url("./fonts/Lora/Lora-Bold.ttf") format("ttf");
+}
+@font-face {
+	font-family: "Lora";
+  font-weight: 700;
+  font-style: italic;
+	src: url("./fonts/Lora/Lora-BoldItalic.ttf") format("ttf");
+}
+@font-face {
+	font-family: "Anonymous_Pro";
+  font-weight: 400;
+  font-style: normal;
+	src: url("./fonts/Anonymous_Pro/AnonymousPro-Regular.ttf") format("ttf");
+}
+@font-face {
+	font-family: "Anonymous_Pro";
+  font-weight: 700;
+  font-style: normal;
+	src: url("./fonts/Anonymous_Pro/AnonymousPro-Bold.ttf") format("ttf");
+}
+
+$mono-family: "Anonymous_Pro", monospace;
+$sans-serif-family: "Lora", sans-serif;
+
+$bg-dark:#333;
+$bg-light: #555;
+$primary-color: #c7c3c4;
+$primary-color-light: #E7E3E4;
+$highlight: #98ecfb;
+$light-fg: #25cae6;
+$med-fg: #76ee27;
+$warm-fg: #ec6f2b;
+$strong-fg: #eb3263;
+
+h1, h2, h3, h4, h5 {
+  font-family: "Anonymous_Pro", monospace;
+}
+
+h1 {
+  color: $light-fg;
+}
 
 body {
-  font: 100% $font-stack;
+  font-family: "Lora", sans-serif;
+  background-color: $bg-dark;
   color: $primary-color;
+}
+
+.ok {
+  color: $med-fg;
+}
+.warn {
+  color: $strong-fg;
+}
+.err {
+  color: $strong-fg;
+}
+
+@mixin focus-border {
+    &:focus {
+      border-color: $highlight;
+    }
+}
+
+@mixin btn($color, $bg-color) {
+    color: $color;
+    background-color: $bg-color;
+    border: 2px darken($bg-color, 5%) solid;
+    &[disabled] {
+      color: $primary-color-light;
+      border-color: darken($bg-light, 5%);
+      background-color: $bg-light;
+    }
+    @include focus-border();
+}
+
+.btn {
+  font-size: 100%;
+  font-family: $mono-family;
+  border: 0;
+  padding: 0.2em;
+
+  &.scary {
+    @include btn($primary-color-light, $strong-fg)
+  }
+
+  &.primary {
+    @include btn($bg-dark, $light-fg)
+  }
+}
+
+input {
+  background-color: $bg-light;
+  color: $primary-color-light;
+  font-size: 1em;
+  border: 2px $primary-color solid;
+  padding: 0.2em;
+  margin: 0.1em 0;
+  box-sizing: border-box;
+  @include focus-border();
+}
+
+.login-box {
+  width: 20em;
+  margin: auto;
+  padding: 1em;
+  input {
+    width: 100%;
+  }
+  button {
+    margin: 1em 0;
+  }
 }

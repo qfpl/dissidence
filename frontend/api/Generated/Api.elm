@@ -466,7 +466,7 @@ getApiLobby query_since toMsg =
             , headers =
                 []
             , url =
-                Url.Builder.crossOrigin ""
+                Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
                     , "lobby"
                     ]
@@ -495,7 +495,7 @@ postApiLobby body toMsg =
             , headers =
                 []
             , url =
-                Url.Builder.crossOrigin ""
+                Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
                     , "lobby"
                     ]
@@ -527,7 +527,7 @@ getApiGame toMsg =
             , headers =
                 []
             , url =
-                Url.Builder.crossOrigin ""
+                Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
                     , "game"
                     ]
@@ -556,7 +556,7 @@ postApiUser body toMsg =
             , headers =
                 []
             , url =
-                Url.Builder.crossOrigin ""
+                Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
                     , "user"
                     ]
@@ -588,7 +588,7 @@ postApiLogin body toMsg =
             , headers =
                 []
             , url =
-                Url.Builder.crossOrigin ""
+                Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
                     , "login"
                     ]

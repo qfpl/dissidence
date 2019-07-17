@@ -13,7 +13,7 @@ import Game.Dissidence.GameState
 
 myElmOpts :: ElmOptions
 myElmOpts = defElmOptions
-  { urlPrefix = Static ""
+  { urlPrefix = Static "http://localhost:8001"
   }
 
 myElmImports :: T.Text

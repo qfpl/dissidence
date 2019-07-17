@@ -5,15 +5,17 @@ module Game.Dissidence where
 import Control.Lens
 
 --import           Control.Monad.Error.Lens           (throwing)
-import           Control.Monad.Except               (ExceptT, runExceptT)
-import           Control.Monad.IO.Class             (MonadIO, liftIO)
-import           Control.Monad.Reader               (ReaderT, runReaderT)
-import qualified Data.ByteString.Lazy.Char8         as C8
-import           Data.Generics.Product              (field)
-import           Database.SQLite.Simple             (Connection)
-import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
-import           GHC.Generics                       (Generic)
-import           Network.Wai.Handler.Warp           (run)
+import           Control.Monad.Except                 (ExceptT, runExceptT)
+import           Control.Monad.IO.Class               (MonadIO, liftIO)
+import           Control.Monad.Reader                 (ReaderT, runReaderT)
+import qualified Data.ByteString.Lazy.Char8           as C8
+import           Data.Generics.Product                (field)
+import           Database.SQLite.Simple               (Connection)
+import           Database.SQLite.SimpleErrors.Types   (SQLiteResponse)
+import           GHC.Generics                         (Generic)
+import           Network.Wai.Handler.Warp             (run)
+import           Network.Wai.Middleware.Cors          (cors, corsRequestHeaders, simpleCorsResourcePolicy)
+import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
 
 import Game.Dissidence.Config (load)
@@ -103,4 +105,5 @@ runApp = do
     Right _  -> do
       let port = c ^. field @"port" . to fromIntegral
       putStrLn $ "Starting server on port " <> (show port)
-      run port (app e)
+      let corsPolicy = simpleCorsResourcePolicy { corsRequestHeaders = ["content-type"]}
+      run port . cors (const (Just corsPolicy)) . logStdoutDev . app $ e

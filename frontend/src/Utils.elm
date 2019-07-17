@@ -1,7 +1,25 @@
-module Utils exposing (httpErrorToStr, maybeToList, onEnterPressed)
+module Utils exposing (disabledIfLoading, httpErrorToStr, maybe, maybeToList, onEnterPressed, remoteDataError)
 
 import Html as H
+import Html.Attributes as HA
+import Html.Events as HE
 import Http
+import Json.Decode
+import RemoteData
+
+
+disabledIfLoading m =
+    HA.disabled (RemoteData.isLoading m)
+
+
+remoteDataError : RemoteData.RemoteData e a -> Maybe e
+remoteDataError rd =
+    case rd of
+        RemoteData.Failure e ->
+            Just e
+
+        _ ->
+            Nothing
 
 
 maybe : b -> (a -> b) -> Maybe a -> b
@@ -38,9 +56,9 @@ onEnterPressed msg =
     let
         isEnter code =
             if code == 13 then
-                Json.succeed msg
+                Json.Decode.succeed msg
 
             else
-                Json.fail ""
+                Json.Decode.fail ""
     in
-    HE.on "keydown" (Json.andThen isEnter HE.keyCode)
+    HE.on "keydown" (Json.Decode.andThen isEnter HE.keyCode)
