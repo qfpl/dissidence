@@ -10,9 +10,9 @@ port putUserSessionValue : Maybe Value -> Cmd msg
 port onUserSessionValueChange : (Value -> msg) -> Sub msg
 
 
-putUserSession : Maybe Session.User -> Cmd msg
-putUserSession =
-    Maybe.map Session.userEncode >> putUserSessionValue
+putUserSession : Maybe Session.User -> (Maybe Session.User -> msg) -> Cmd msg
+putUserSession u f =
+    Maybe.map Session.userEncode u |> putUserSessionValue |> Cmd.map (always (f u))
 
 
 onUserSessionChange : (Maybe Session.User -> msg) -> Sub msg

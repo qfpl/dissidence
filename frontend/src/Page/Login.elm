@@ -7,6 +7,7 @@ import Html as H
 import Html.Attributes as HA
 import Html.Events as HE
 import Http
+import Page
 import Ports exposing (putUserSession)
 import RemoteData exposing (RemoteData)
 import Route
@@ -22,17 +23,19 @@ type Msg
 
 
 type alias Model =
-    { key : Nav.Key
-    , username : String
+    { username : String
     , password : String
     , submission : RemoteData String Session.User
     }
 
 
-init : Nav.Key -> Maybe Session.User -> ( Model, Cmd Msg )
+type alias PageMsg =
+    Page.SubMsg Msg
+
+
+init : Nav.Key -> Maybe Session.User -> ( Model, Cmd PageMsg )
 init key user =
-    ( { key = key
-      , username = ""
+    ( { username = ""
       , password = ""
       , submission = RemoteData.NotAsked
       }
@@ -40,13 +43,13 @@ init key user =
     )
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions : Maybe Session.User -> Model -> Sub PageMsg
+subscriptions _ _ =
     Sub.none
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
+update : Nav.Key -> Maybe Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
+update key user msg model =
     case msg of
         SetUsername u ->
             ( { model | username = u }, Cmd.none )
@@ -58,7 +61,7 @@ update msg model =
             ( { model | submission = RemoteData.Loading }
             , BE.postApiLogin
                 { dbUsername = model.username, dbUserPassword = model.password }
-                HandleResp
+                (Page.wrapChildMsg HandleResp)
             )
 
         HandleResp r ->
@@ -78,13 +81,13 @@ update msg model =
             ( { model | submission = remoteData }
             , RemoteData.unwrap
                 Cmd.none
-                (\us -> Cmd.batch [ putUserSession (Just us), Route.pushRoute model.key Route.Lobby ])
+                (\us -> Cmd.batch [ putUserSession (Just us) (Page.wrapParentMsg Page.SetUser), Route.pushRoute key Route.Lobby ])
                 remoteData
             )
 
 
-view : Model -> Browser.Document Msg
-view model =
+view : Maybe Session.User -> Model -> Browser.Document Msg
+view user model =
     { title = "Dissidence: Compositional Crusaders - Login"
     , body =
         [ H.div [ HA.class "login-box" ]

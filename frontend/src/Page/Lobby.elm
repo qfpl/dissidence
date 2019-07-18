@@ -7,6 +7,7 @@ import Html as H
 import Html.Attributes as HA
 import Html.Events as HE
 import Http
+import Page
 import Ports exposing (putUserSession)
 import RemoteData exposing (RemoteData)
 import Result
@@ -24,9 +25,7 @@ type Msg
 
 
 type alias Model =
-    { key : Nav.Key
-    , user : Session.User
-    , lastUpdated : Maybe Time.Posix
+    { lastUpdated : Maybe Time.Posix
     , newChatLine : String
     , chatLines : List BE.ChatLine
     , chatListError : Maybe String
@@ -35,37 +34,39 @@ type alias Model =
     }
 
 
-init : Nav.Key -> Session.User -> ( Model, Cmd Msg )
+type alias PageMsg =
+    Page.SubMsg Msg
+
+
+init : Nav.Key -> Session.User -> ( Model, Cmd PageMsg )
 init key user =
-    ( { key = key
-      , user = user
-      , newChatLine = ""
+    ( { newChatLine = ""
       , lastUpdated = Nothing
       , chatLines = []
       , chatListError = Nothing
       , validationIssues = []
       , submission = RemoteData.NotAsked
       }
-    , BE.getApiLobby Nothing HandleListResp
+    , BE.getApiLobby Nothing (HandleListResp >> Page.ChildMsg)
     )
 
 
-subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions : Session.User -> Model -> Sub PageMsg
+subscriptions _ _ =
     Sub.none
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
+update : Nav.Key -> Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
+update key user msg model =
     case msg of
         SetNewLine l ->
             ( { model | newChatLine = l }, Cmd.none )
 
         Submit ->
-            case validateNewChatLine model of
+            case validateNewChatLine user model of
                 Ok newChatLine ->
                     ( { model | validationIssues = [], submission = RemoteData.Loading }
-                    , BE.postApiLobby newChatLine HandleNewLineResp
+                    , BE.postApiLobby newChatLine (Page.wrapChildMsg HandleNewLineResp)
                     )
 
                 Err problems ->
@@ -91,7 +92,7 @@ update msg model =
             ( { model | submission = remoteData }
             , RemoteData.unwrap
                 Cmd.none
-                (\us -> BE.getApiLobby Nothing HandleListResp)
+                (\us -> BE.getApiLobby Nothing (Page.wrapChildMsg HandleListResp))
                 remoteData
             )
 
@@ -101,8 +102,8 @@ update msg model =
 -- Come back to this later.
 
 
-validateNewChatLine : Model -> Result.Result (List String) BE.NewChatLine
-validateNewChatLine model =
+validateNewChatLine : Session.User -> Model -> Result.Result (List String) BE.NewChatLine
+validateNewChatLine user model =
     let
         trimmedLine =
             String.trim model.newChatLine
@@ -118,7 +119,7 @@ validateNewChatLine model =
             List.concat [ newChatLineError ]
     in
     if allErrs == [] then
-        Result.Ok { newChatLineUsername = model.user.username, newChatLineText = trimmedLine, newChatGameId = Nothing }
+        Result.Ok { newChatLineUsername = user.username, newChatLineText = trimmedLine, newChatGameId = Nothing }
 
     else
         Result.Err allErrs
