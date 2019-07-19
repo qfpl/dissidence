@@ -39,13 +39,17 @@ init key user =
       , password = ""
       , submission = RemoteData.NotAsked
       }
-    , maybe Cmd.none (always (Route.pushRoute key Route.Lobby)) user
+    , Cmd.none
     )
 
 
 subscriptions : Maybe Session.User -> Model -> Sub PageMsg
 subscriptions _ _ =
     Sub.none
+
+
+
+--Ports.onUserSessionChange (Page.wrapParentMsg Page.SetUser)
 
 
 update : Nav.Key -> Maybe Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
@@ -81,7 +85,7 @@ update key user msg model =
             ( { model | submission = remoteData }
             , RemoteData.unwrap
                 Cmd.none
-                (\us -> Cmd.batch [ putUserSession (Just us) (Page.wrapParentMsg Page.SetUser), Route.pushRoute key Route.Lobby ])
+                (\us -> Cmd.batch [ putUserSession (Just us), Route.pushRoute key Route.Lobby ])
                 remoteData
             )
 

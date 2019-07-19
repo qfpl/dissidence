@@ -2,6 +2,7 @@ module Main exposing (main)
 
 import Browser
 import Browser.Navigation as Nav
+import Debug
 import Html as H
 import Html.Attributes as HA
 import Html.Events as HE
@@ -81,10 +82,16 @@ initPage key user url =
 
         routeMay =
             Url.Parser.parse Route.parser url
+
+        redirect r =
+            ( { key = key, user = user, page = Nothing }, Route.pushRoute key r )
+
+        requireUser f =
+            Utils.maybe (redirect Route.Login) f user
     in
-    case routeMay of
+    case Debug.log "INIT PAGE" routeMay of
         Nothing ->
-            ( { key = key, user = user, page = Nothing }, Route.pushRoute key Route.Login )
+            redirect Route.Login
 
         Just Route.Login ->
             wrapInit Login Login (Page.Login.init key user)
@@ -93,7 +100,7 @@ initPage key user url =
             wrapInit Register Register (Page.Register.init key user)
 
         Just Route.Lobby ->
-            wrapInit Register Register (Page.Register.init key user)
+            requireUser (\u -> wrapInit Lobby Lobby (Page.Lobby.init key u))
 
         Just (Route.Game _) ->
             ( { key = key, user = Nothing, page = Nothing }, Cmd.none )
@@ -101,7 +108,7 @@ initPage key user url =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
-    case action of
+    case Debug.log "UPDATE" action of
         UrlRequest _ ->
             ( model, Cmd.none )
 
@@ -148,7 +155,7 @@ subscriptions model =
         requireUser f =
             Utils.maybe Sub.none f model.user
     in
-    case model.page of
+    case Debug.log "SUBS" model.page of
         Nothing ->
             Sub.none
 
@@ -164,7 +171,7 @@ subscriptions model =
 
 view : Model -> Browser.Document Msg
 view model =
-    case model.page of
+    case Debug.log "VIEW" model.page of
         Nothing ->
             { title = "Dissidence: Compositional Crusaders", body = [] }
 

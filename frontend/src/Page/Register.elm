@@ -94,7 +94,7 @@ update key user msg model =
                 Cmd.none
                 (\us ->
                     Cmd.batch
-                        [ putUserSession (Just us) (Page.wrapParentMsg Page.SetUser), Route.pushRoute key Route.Lobby ]
+                        [ putUserSession (Just us), Route.pushRoute key Route.Lobby ]
                 )
                 remoteData
             )

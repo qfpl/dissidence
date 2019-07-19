@@ -4,21 +4,16 @@ const sessionKey = "dissidence_usersession";
 
 var oldSessionStr = localStorage.getItem(sessionKey)
 
-console.log("STARTUP");
-
 const app = Elm.Main.init({
-  node: document.getElementById('elm'),
 })
 
 app.ports.putUserSessionValue.subscribe((d) => {
-  console.log("PUT USER SESSION");
-
+  console.log("PUT SESSION", d);
   if (d === null) {
-    localStorage.removeItem(storageKey);
+    localStorage.removeItem(sessionKey);
   } else {
-    localStorage.setItem(storageKey, JSON.stringify(d));
+    localStorage.setItem(sessionKey, JSON.stringify(d));
   }
-
   setTimeout(function () { app.ports.onUserSessionValueChange.send(d); }, 0);
 })
 
