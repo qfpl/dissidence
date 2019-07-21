@@ -132,29 +132,43 @@ view model =
         [ H.div []
             [ H.h1 [] [ H.text "Lobby" ]
             , H.div [ HA.class "chatbox" ] (List.map chatLineView model.chatLines)
-            , H.form [ HA.class "", HE.onSubmit Submit ]
-                [ H.input
-                    [ HA.placeholder "type a chat message"
-                    , HE.onInput SetNewLine
-                    , HA.value model.newChatLine
+            , H.form [ HE.onSubmit Submit ]
+                [ H.ul []
+                    [ H.li []
+                        [ H.label [ HA.for "chat-message" ] [ H.text "Chat Message" ]
+                        , H.input
+                            [ HA.placeholder "type a chat message"
+                            , HE.onInput SetNewLine
+                            , HA.value model.newChatLine
+                            ]
+                            []
+                        ]
+                    , H.li []
+                        [ H.button
+                            [ HA.class "btn primary", disabledIfLoading model.submission ]
+                            [ H.text "send" ]
+                        ]
+                    , let errors = beUtils.maybe (H.text "") chatWarnings (remoteDataError model.submission)
                     ]
-                    []
-                , H.button
-                    [ HA.class "btn primary", disabledIfLoading model.submission ]
-                    [ H.text "send" ]
-                , H.ul [ HA.class "warn" ]
-                    (model.submission
-                        |> remoteDataError
-                        |> maybeToList
-                        |> List.append model.validationIssues
-                        |> List.map (\em -> H.li [] [ H.text em ])
-                    )
                 ]
             ]
         ]
     }
 
+chatWarnings error = H.li []
+                        [ H.ul [ HA.class "warn" ]
+                            (submission
+                                |> remoteDataError
+                                |> maybeToList
+                                |> t.append model.validationIssues
+                                |> List.map (\em -> H.li [] [ H.text em ])
+                            )
+                        ]
+
 
 chatLineView : BE.ChatLine -> H.Html Msg
 chatLineView cl =
-    H.p [] [ H.text cl.chatLineUsername, H.text "> ", H.text cl.chatLineText ]
+    H.p []
+        [ H.b [] [ H.text cl.chatLineUsername, H.text "> " ]
+        , H.text cl.chatLineText
+        ]

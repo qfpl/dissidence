@@ -1,10 +1,11 @@
 module Page exposing (ParentMsg(..), SubMsg(..), wrapChildMsg, wrapParentMsg)
 
+import Route
 import Session
 
 
 type ParentMsg
-    = SetUser (Maybe Session.User)
+    = SetUser Route.Route (Maybe Session.User)
 
 
 {-| Messages that child pages raise to here.

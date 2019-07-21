@@ -1,7 +1,7 @@
 module Route exposing (Route(..), parser, pushRoute)
 
 import Browser.Navigation as Nav
-import Url.Builder exposing (relative)
+import Url.Builder exposing (absolute)
 import Url.Parser exposing ((</>), Parser, int, map, oneOf, s, string, top)
 
 
@@ -26,16 +26,16 @@ toString : Route -> String
 toString r =
     case r of
         Login ->
-            relative [ "login" ] []
+            absolute [ "login" ] []
 
         Register ->
-            relative [ "register" ] []
+            absolute [ "register" ] []
 
         Lobby ->
-            relative [ "lobby" ] []
+            absolute [] []
 
         Game gId ->
-            relative [ "game", String.fromInt gId ] []
+            absolute [ "game", String.fromInt gId ] []
 
 
 pushRoute : Nav.Key -> Route -> Cmd a

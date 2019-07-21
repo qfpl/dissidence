@@ -8,15 +8,14 @@ console.log("STARTUP");
 
 const app = Elm.Main.init({
   node: document.getElementById('elm'),
+  flags: JSON.parse(oldSessionStr)
 })
 
 app.ports.putUserSessionValue.subscribe((d) => {
-  console.log("PUT USER SESSION");
-
   if (d === null) {
-    localStorage.removeItem(storageKey);
+    localStorage.removeItem(sessionKey);
   } else {
-    localStorage.setItem(storageKey, JSON.stringify(d));
+    localStorage.setItem(sessionKey, JSON.stringify(d));
   }
 
   setTimeout(function () { app.ports.onUserSessionValueChange.send(d); }, 0);
@@ -24,9 +23,7 @@ app.ports.putUserSessionValue.subscribe((d) => {
 
 
 window.addEventListener('storage', (event) => {
-  console.log("STORAGE", event)
   if (event.storageArea === localStorage && event.key === sessionKey) {
     app.ports.onUserSessionValueChange.send(JSON.parse(event.newValue));
   }
-}, false);
-
+});

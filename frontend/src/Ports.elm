@@ -17,4 +17,4 @@ putUserSession u =
 
 onUserSessionChange : (Maybe Session.User -> msg) -> Sub msg
 onUserSessionChange f =
-    onUserSessionChange f
+    onUserSessionValueChange (Json.Decode.decodeValue Session.userDecode >> Result.toMaybe >> f)

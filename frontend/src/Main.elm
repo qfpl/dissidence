@@ -24,11 +24,7 @@ import Url.Parser
 import Utils
 
 
-type alias Flags =
-    ()
-
-
-main : Program Flags Model Msg
+main : Program (Maybe Session.User) Model Msg
 main =
     Browser.application
         { init = init
@@ -68,9 +64,9 @@ type alias Model =
     }
 
 
-init : Flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
-init _ url key =
-    initPage key Nothing url
+init : Maybe Session.User -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init user url key =
+    initPage key user url
 
 
 initPage : Nav.Key -> Maybe Session.User -> Url.Url -> ( Model, Cmd Msg )
@@ -89,7 +85,7 @@ initPage key user url =
         requireUser f =
             Utils.maybe (redirect Route.Login) f user
     in
-    case Debug.log "INIT PAGE" routeMay of
+    case routeMay of
         Nothing ->
             redirect Route.Login
 
@@ -108,7 +104,7 @@ initPage key user url =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
-    case Debug.log "UPDATE" action of
+    case action of
         UrlRequest _ ->
             ( model, Cmd.none )
 
@@ -117,8 +113,8 @@ update action model =
 
         HandleParentMsg m ->
             case m of
-                Page.SetUser u ->
-                    ( { model | user = u }, Cmd.none )
+                Page.SetUser r u ->
+                    ( { model | user = u }, Route.pushRoute model.key r )
 
         HandlePageMsg pm ->
             let
@@ -155,7 +151,7 @@ subscriptions model =
         requireUser f =
             Utils.maybe Sub.none f model.user
     in
-    case Debug.log "SUBS" model.page of
+    case model.page of
         Nothing ->
             Sub.none
 
@@ -171,7 +167,7 @@ subscriptions model =
 
 view : Model -> Browser.Document Msg
 view model =
-    case Debug.log "VIEW" model.page of
+    case model.page of
         Nothing ->
             { title = "Dissidence: Compositional Crusaders", body = [] }
 

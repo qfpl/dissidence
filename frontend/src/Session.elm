@@ -1,4 +1,4 @@
-module Session exposing (User, userEncode)
+module Session exposing (User, userDecode, userEncode)
 
 import Browser.Navigation
 import Json.Decode as Decode
@@ -12,5 +12,10 @@ type alias User =
 
 
 userEncode : User -> Encode.Value
-userEncode _ =
-    Encode.null
+userEncode u =
+    Encode.object [ ( "username", Encode.string u.username ) ]
+
+
+userDecode : Decode.Decoder User
+userDecode =
+    Decode.map User (Decode.field "username" Decode.string)

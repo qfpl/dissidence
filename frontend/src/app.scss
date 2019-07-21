@@ -127,3 +127,19 @@ input {
     margin: 1em 0;
   }
 }
+
+.chatbox {
+  border: 1px $primary-color-light solid;
+  height: 20em;
+  overflow-y: scroll;
+  padding: 0.5em;
+  width: 40em;
+  background-color: $bg-light;
+  p {
+    margin: 0.2em;
+    font-family: $mono-family;
+  }
+  form {
+    width: 100%;
+  }
+}
