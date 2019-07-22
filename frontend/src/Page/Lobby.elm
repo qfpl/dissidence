@@ -7,6 +7,7 @@ import Html as H
 import Html.Attributes as HA
 import Html.Events as HE
 import Http
+import List.Nonempty as NEL
 import Page
 import Ports exposing (putUserSession)
 import RemoteData exposing (RemoteData)
@@ -129,7 +130,7 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "Dissidence: Compositional Crusaders - Register"
     , body =
-        [ H.div []
+        [ H.div [ HA.class "chatbox-container" ]
             [ H.h1 [] [ H.text "Lobby" ]
             , H.div [ HA.class "chatbox" ] (List.map chatLineView model.chatLines)
             , H.form [ HE.onSubmit Submit ]
@@ -140,6 +141,7 @@ view model =
                             [ HA.placeholder "type a chat message"
                             , HE.onInput SetNewLine
                             , HA.value model.newChatLine
+                            , HA.id "chat-message"
                             ]
                             []
                         ]
@@ -148,22 +150,21 @@ view model =
                             [ HA.class "btn primary", disabledIfLoading model.submission ]
                             [ H.text "send" ]
                         ]
-                    , let errors = beUtils.maybe (H.text "") chatWarnings (remoteDataError model.submission)
+                    , let
+                        errorsMay =
+                            NEL.fromList (maybeToList (remoteDataError model.submission) ++ model.validationIssues)
+                      in
+                      Utils.maybe (H.text "") chatWarnings errorsMay
                     ]
                 ]
             ]
         ]
     }
 
-chatWarnings error = H.li []
-                        [ H.ul [ HA.class "warn" ]
-                            (submission
-                                |> remoteDataError
-                                |> maybeToList
-                                |> t.append model.validationIssues
-                                |> List.map (\em -> H.li [] [ H.text em ])
-                            )
-                        ]
+
+chatWarnings : NEL.Nonempty String -> H.Html Msg
+chatWarnings errors =
+    H.li [] [ H.ul [ HA.class "warn" ] (List.map (\em -> H.li [] [ H.text em ]) (NEL.toList errors)) ]
 
 
 chatLineView : BE.ChatLine -> H.Html Msg

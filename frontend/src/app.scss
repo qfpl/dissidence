@@ -128,18 +128,38 @@ input {
   }
 }
 
-.chatbox {
-  border: 1px $primary-color-light solid;
-  height: 20em;
-  overflow-y: scroll;
-  padding: 0.5em;
+.chatbox-container {
   width: 40em;
-  background-color: $bg-light;
-  p {
-    margin: 0.2em;
-    font-family: $mono-family;
+
+  .chatbox {
+    border: 1px $primary-color-light solid;
+    height: 20em;
+    overflow-y: scroll;
+    padding: 0.5em;
+    background-color: $bg-light;
+    p {
+      margin: 0.2em;
+      font-family: $mono-family;
+    }
   }
   form {
     width: 100%;
+    ul {
+      list-style: none;
+      padding-inline-start: 0;
+
+      label {
+        margin-right: 0.5em;
+      }
+      li {
+        width: 100%;
+        display: flex;
+        align-items: center;
+      }
+    }
+    #chatmessage {
+      flex-grow: 5; 
+    }
   }
 }
+
