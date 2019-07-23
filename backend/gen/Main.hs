@@ -1,15 +1,22 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings #-}
+{-# LANGUAGE DataKinds, FlexibleContexts, FlexibleInstances, LambdaCase, MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings, TypeOperators                                                  #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
-import qualified Data.Text   as T
+import qualified Data.Text                    as T
 import           Elm.TyRep
+import           Servant.Auth
 import           Servant.Elm
+import           Servant.Elm.Internal.Foreign
+import           Servant.Foreign              hiding (Static)
 
-import Debug.Trace
 
 import Game.Dissidence
 import Game.Dissidence.Db
 import Game.Dissidence.GameState
+
+-- TODO: Get this to work.
+instance HasForeign LangElm EType ((Auth '[JWT] Session) :> api) where
 
 myElmOpts :: ElmOptions
 myElmOpts = defElmOptions

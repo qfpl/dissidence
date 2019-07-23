@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell, TypeApplications, TypeOperators                                  #-}
 module Game.Dissidence where
 
-import Control.Lens
+import Control.Lens hiding (Context)
 
 import           Control.Monad                        (unless)
 import           Control.Monad.Error.Lens             (throwing)
@@ -16,8 +16,8 @@ import           Data.Text                            (Text)
 import           Database.SQLite.SimpleErrors.Types   (SQLiteResponse)
 import           GHC.Generics                         (Generic)
 import           Network.Wai.Handler.Warp             (run)
-import           Network.Wai.Middleware.Cors          (cors, corsOrigins, corsRequestHeaders,
-                                                       simpleCorsResourcePolicy)
+import           Network.Wai.Middleware.Cors          (cors, corsExposedHeaders, corsOrigins,
+                                                       corsRequestHeaders, simpleCorsResourcePolicy)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
 import           Servant.Auth.Server
@@ -48,6 +48,12 @@ class HasCookieSettings a where
 class HasJwtSettings a where
   jwtSettings :: Getter a JWTSettings
 
+instance HasCookieSettings Env where
+  cookieSettings = envCookieSettings
+
+instance HasJwtSettings Env where
+  jwtSettings = envJwtSettings
+
 instance HasCookieSettings EnvWConnection where
   cookieSettings = envCookieSettings
 
@@ -57,8 +63,10 @@ instance HasJwtSettings EnvWConnection where
 type AppConstraints e r m = (DbConstraints e r m, HasCookieSettings r, HasJwtSettings r, AsAppError e)
 
 type ChatApi
-  =    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
-  :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
+  = Auth '[JWT] Session :>
+    ( QueryParam "since" Posix :> Get '[JSON] [ChatLine]
+    :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
+    )
 
 type GameApi = Get '[JSON] DbGameState
 
@@ -86,7 +94,7 @@ api :: Proxy Api
 api = Proxy
 
 server :: AppConstraints e r m => ServerT Api m
-server = (globalChatGet :<|> globalChatAppend) :<|> gameGet :<|> userPost :<|> loginPost
+server = (\_ -> globalChatGet :<|> globalChatAppend) :<|> gameGet :<|> userPost :<|> loginPost
 
 globalChatGet :: AppConstraints e r m => Maybe Posix -> m [ChatLine]
 globalChatGet _ = selectChatLines Nothing
@@ -117,7 +125,9 @@ loginPost dbUser = do
 
 
 app :: Env -> Application
-app e = serve api (hoistServer api (appHandler e) server)
+app e = serveWithContext api ctx (hoistServerWithContext api (Proxy :: Proxy '[CookieSettings, JWTSettings]) (appHandler e) server)
+  where
+    ctx = (e ^. cookieSettings) :. (e ^. jwtSettings) :. EmptyContext
 
 runDbContext :: (AsSQLiteResponse e, MonadIO m) => Env -> ExceptT e (ReaderT EnvWConnection IO) a -> m (Either e a)
 runDbContext e = liftIO . withEnvDbConnection e . runReaderT . runExceptT
@@ -144,6 +154,7 @@ runApp = do
       putStrLn $ "Starting server on port " <> (show port)
       let corsPolicy = simpleCorsResourcePolicy
             { corsRequestHeaders = ["content-type"]
-            , corsOrigins = Just (["http://localhost:1234"], True)
+            , corsOrigins = Just (["http://127.0.0.1:1234"], True)
+            , corsExposedHeaders = Just ["Set-Cookie"]
             }
       run port . cors (const (Just corsPolicy)) . logStdoutDev . app $ e
