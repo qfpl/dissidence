@@ -50,7 +50,7 @@ init key user =
       , validationIssues = []
       , submission = RemoteData.NotAsked
       }
-    , BE.getApiLobby Nothing (HandleListResp >> Page.ChildMsg)
+    , BE.getApiLobby user.token Nothing (HandleListResp >> Page.ChildMsg)
     )
 
 
@@ -69,7 +69,7 @@ update key user msg model =
             case validateNewChatLine user model of
                 Ok newChatLine ->
                     ( { model | validationIssues = [], submission = RemoteData.Loading }
-                    , BE.postApiLobby newChatLine (Page.wrapChildMsg HandleNewLineResp)
+                    , BE.postApiLobby user.token newChatLine (Page.wrapChildMsg HandleNewLineResp)
                     )
 
                 Err problems ->
@@ -81,7 +81,7 @@ update key user msg model =
                     )
 
         Tick t ->
-            ( model, BE.getApiLobby Nothing (HandleListResp >> Page.ChildMsg) )
+            ( model, BE.getApiLobby user.token Nothing (HandleListResp >> Page.ChildMsg) )
 
         HandleListResp (Err e) ->
             ( { model | chatListError = Just (Utils.httpErrorToStr e) }, Cmd.none )
@@ -98,7 +98,7 @@ update key user msg model =
             ( { model | submission = remoteData, newChatLine = "" }
             , RemoteData.unwrap
                 Cmd.none
-                (\us -> BE.getApiLobby Nothing (Page.wrapChildMsg HandleListResp))
+                (\us -> BE.getApiLobby user.token Nothing (Page.wrapChildMsg HandleListResp))
                 remoteData
             )
 

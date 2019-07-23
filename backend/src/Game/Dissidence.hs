@@ -1,23 +1,26 @@
-{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, OverloadedStrings, ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell, TypeApplications, TypeOperators                                  #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, FlexibleContexts, OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications, TypeOperators          #-}
 module Game.Dissidence where
 
 import Control.Lens hiding (Context)
 
 import           Control.Monad                        (unless)
 import           Control.Monad.Error.Lens             (throwing)
-import           Control.Monad.Except                 (ExceptT, runExceptT)
+import           Control.Monad.Except                 (ExceptT, MonadError, runExceptT)
 import           Control.Monad.IO.Class               (MonadIO, liftIO)
 import           Control.Monad.Reader                 (ReaderT, runReaderT)
+import           Crypto.JOSE                          (Error)
 import           Data.Aeson                           (FromJSON, ToJSON)
 import qualified Data.ByteString.Lazy.Char8           as LC8
 import           Data.Generics.Product                (field)
 import           Data.Text                            (Text)
+import qualified Data.Text.Lazy                       as TL
+import qualified Data.Text.Lazy.Encoding              as TL
 import           Database.SQLite.SimpleErrors.Types   (SQLiteResponse)
 import           GHC.Generics                         (Generic)
 import           Network.Wai.Handler.Warp             (run)
-import           Network.Wai.Middleware.Cors          (cors, corsExposedHeaders, corsOrigins,
-                                                       corsRequestHeaders, simpleCorsResourcePolicy)
+import           Network.Wai.Middleware.Cors          (cors, corsOrigins, corsRequestHeaders,
+                                                       simpleCorsResourcePolicy)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
 import           Servant.Auth.Server
@@ -30,7 +33,7 @@ import Game.Dissidence.Db     (AsDbError (..), AsDbLogicError (..), AsSQLiteResp
 import Game.Dissidence.Env    (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath, envJwtSettings,
                                withEnvDbConnection)
 
-data AppError = AppLoginFailed | AppRequireUser | AppDbError DbError deriving (Show, Generic)
+data AppError = AppJwtMisconfiguration Error | AppLoginFailed | AppRequireUser | AppDbError DbError deriving (Show, Generic)
 makeClassyPrisms ''AppError
 
 instance AsDbError AppError where
@@ -71,11 +74,10 @@ type ChatApi
 type GameApi = Get '[JSON] DbGameState
 
 type UserApi
-  =    ReqBody '[JSON] DbUser :> Post '[JSON] ()
+  =    ReqBody '[JSON] DbUser :> Post '[JSON] String
 
 type LoginApi
-  = ReqBody '[JSON] DbUser :> PostNoContent '[JSON]
-    (Headers '[ Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] ())
+  = ReqBody '[JSON] DbUser :> Post '[JSON] String
 
 type Api = "api" :>
   ("lobby" :> ChatApi
@@ -90,39 +92,45 @@ instance FromJSON Session
 instance ToJWT Session
 instance FromJWT Session
 
+sessionToJwt :: (MonadError e m, AsAppError e, MonadIO m) => JWTSettings -> Session -> m String
+sessionToJwt jwtS s = do
+  res <- liftIO $ makeJWT s jwtS Nothing
+  case res of
+    Left e  -> throwing _AppJwtMisconfiguration e
+    -- Yeah, this is cheating I know. Servant-elm can't tack on the bearer bit. :(
+    Right r -> pure . ("Bearer " <>) . TL.unpack . TL.decodeUtf8 $ r
+
 api :: Proxy Api
 api = Proxy
 
 server :: AppConstraints e r m => ServerT Api m
-server = (\_ -> globalChatGet :<|> globalChatAppend) :<|> gameGet :<|> userPost :<|> loginPost
+server = chatApi :<|> gameGet :<|> userPost :<|> loginPost
 
-globalChatGet :: AppConstraints e r m => Maybe Posix -> m [ChatLine]
-globalChatGet _ = selectChatLines Nothing
+chatApi :: (AppConstraints e r m) => ServerT ChatApi m
+chatApi (Authenticated s) = globalChatGet s :<|> globalChatAppend s
+chatApi _                 = (\_ -> throwing _AppRequireUser ()) :<|> (\_ -> throwing _AppRequireUser ())
 
-globalChatAppend :: AppConstraints e r m => NewChatLine -> m ()
-globalChatAppend = insertChatLine
+globalChatGet :: AppConstraints e r m => Session -> Maybe Posix -> m [ChatLine]
+globalChatGet _ _ = selectChatLines Nothing
+
+globalChatAppend :: AppConstraints e r m => Session -> NewChatLine -> m ()
+globalChatAppend _ = insertChatLine
 
 gameGet :: AppConstraints e r m => m DbGameState
 gameGet = selectGameState (GameId 1)
 
-userPost :: AppConstraints e r m => DbUser -> m ()
-userPost = insertUser
+userPost :: AppConstraints e r m => DbUser -> m String
+userPost dbUser = do
+  jwtS <- view jwtSettings
+  insertUser dbUser
+  sessionToJwt jwtS (Session (dbUser ^. field @"dbUsername"))
 
--- TODO: Actually do proper auth stuff
-loginPost
-  :: AppConstraints e r m
-  => DbUser
-  -> m (Headers '[Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] ())
+loginPost :: AppConstraints e r m => DbUser -> m String
 loginPost dbUser = do
-  cookieS <- view cookieSettings
   jwtS <- view jwtSettings
   b <- checkLogin dbUser
   unless b $ throwing _AppRequireUser ()
-  mApplyCookies <- liftIO $ acceptLogin cookieS jwtS (Session (dbUser ^. field @"dbUsername"))
-  case mApplyCookies of
-    Nothing         -> throwing _AppRequireUser ()
-    Just appCookies -> pure $ appCookies ()
-
+  sessionToJwt jwtS (Session (dbUser ^. field @"dbUsername"))
 
 app :: Env -> Application
 app e = serveWithContext api ctx (hoistServerWithContext api (Proxy :: Proxy '[CookieSettings, JWTSettings]) (appHandler e) server)
@@ -136,10 +144,11 @@ appHandler :: Env -> ExceptT AppError (ReaderT EnvWConnection IO) a -> Handler a
 appHandler e prog = do
   res <- runDbContext e prog
   case res of
-    Left (AppDbError err) -> throwError $ err500 { errBody = "Database error: " <> LC8.pack (show err) }
-    Left AppLoginFailed   -> throwError err403
-    Left AppRequireUser   -> throwError err401
-    Right a               -> pure a
+    Left (AppDbError err)            -> throwError $ err500 { errBody = "Database error: " <> LC8.pack (show err) }
+    Left AppLoginFailed              -> throwError err403
+    Left AppRequireUser              -> throwError err401
+    Left (AppJwtMisconfiguration je) -> throwError $ err500 { errBody = "JWT Misconfigured " <> LC8.pack (show je)}
+    Right a                          -> pure a
 
 runApp :: IO ()
 runApp = do
@@ -153,8 +162,7 @@ runApp = do
       let port = c ^. field @"port" . to fromIntegral
       putStrLn $ "Starting server on port " <> (show port)
       let corsPolicy = simpleCorsResourcePolicy
-            { corsRequestHeaders = ["content-type"]
-            , corsOrigins = Just (["http://127.0.0.1:1234"], True)
-            , corsExposedHeaders = Just ["Set-Cookie"]
+            { corsRequestHeaders = ["content-type","authorization"]
+            , corsOrigins = Just (["http://localhost:1234"], True)
             }
       run port . cors (const (Just corsPolicy)) . logStdoutDev . app $ e

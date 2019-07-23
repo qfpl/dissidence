@@ -14,6 +14,7 @@ import           Servant.Elm
 import           Servant.Elm.Internal.Foreign
 import           Servant.Foreign              hiding (Static)
 
+import Debug.Trace
 
 import Game.Dissidence
 import Game.Dissidence.Db
@@ -33,6 +34,7 @@ instance
   , KnownSymbol header
   , HasForeignType lang ftype Token
   , HasForeign lang ftype sub
+  , Show ftype
   )
   => HasForeign lang ftype (Auth auths a :> sub) where
     type Foreign ftype (Auth auths a :> sub) = Foreign ftype sub
@@ -50,6 +52,11 @@ instance
 myElmOpts :: ElmOptions
 myElmOpts = defElmOptions
   { urlPrefix = Static "http://localhost:8001"
+  , stringElmTypes =
+    [ toElmType (Proxy @String)
+    , toElmType (Proxy @T.Text)
+    , toElmType (Proxy @Token)
+    ]
   }
 
 myElmImports :: T.Text

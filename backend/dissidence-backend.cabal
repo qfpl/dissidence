@@ -46,6 +46,7 @@ library
                      , servant-elm
                      , servant-server
                      , servant-auth
+                     , servant-auth-client
                      , servant-auth-server
                      , sqlite-simple
                      , sqlite-simple-errors

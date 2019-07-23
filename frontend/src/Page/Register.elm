@@ -21,7 +21,7 @@ type Msg
     | SetPassword String
     | SetPasswordAgain String
     | Submit
-    | HandleResp (Result Http.Error ())
+    | HandleResp (Result Http.Error String)
 
 
 type alias Model =
@@ -87,7 +87,7 @@ update key user msg model =
                     RemoteData.fromResult r
                         |> RemoteData.mapError Utils.httpErrorToStr
                         |> RemoteData.map
-                            (always { username = model.username })
+                            (\t -> { username = model.username, token = t })
             in
             ( { model | submission = remoteData }
             , RemoteData.unwrap
