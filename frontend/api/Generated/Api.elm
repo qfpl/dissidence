@@ -1,4 +1,4 @@
-module Generated.Api exposing (ChatLine, CrusaderRole(..), CurrentRoundState, DbGameState, DbUser, EndCondition(..), GameId, GameState(..), HistoricRoundState, LeadershipQueue, NewChatLine, PlayerId, ProposalState(..), Role(..), RoundResult(..), RoundShape, RoundsState, SideEffectRole(..), SideEffectWinCondition(..), TeamVotingResult, getApiGame, getApiLobby, jsonDecBool, jsonDecChatLine, jsonDecCrusaderRole, jsonDecCurrentRoundState, jsonDecDbGameState, jsonDecDbUser, jsonDecEndCondition, jsonDecGameId, jsonDecGameState, jsonDecHistoricRoundState, jsonDecLeadershipQueue, jsonDecNewChatLine, jsonDecPlayerId, jsonDecPosix, jsonDecProposalState, jsonDecRole, jsonDecRoundResult, jsonDecRoundShape, jsonDecRoundsState, jsonDecSideEffectRole, jsonDecSideEffectWinCondition, jsonDecTeamVotingResult, jsonEncBool, jsonEncChatLine, jsonEncCrusaderRole, jsonEncCurrentRoundState, jsonEncDbGameState, jsonEncDbUser, jsonEncEndCondition, jsonEncGameId, jsonEncGameState, jsonEncHistoricRoundState, jsonEncLeadershipQueue, jsonEncNewChatLine, jsonEncPlayerId, jsonEncPosix, jsonEncProposalState, jsonEncRole, jsonEncRoundResult, jsonEncRoundShape, jsonEncRoundsState, jsonEncSideEffectRole, jsonEncSideEffectWinCondition, jsonEncTeamVotingResult, maybeBoolToIntStr, postApiLobby, postApiLogin, postApiUser)
+module Generated.Api exposing (ChatLine, CrusaderRole(..), CurrentRoundState, DbGameState, DbUser, EndCondition(..), GameId, GameState(..), HistoricRoundState, LeadershipQueue, NewChatLine, PlayerId, ProposalState(..), Role(..), RoundResult(..), RoundShape, RoundsState, SideEffectRole(..), SideEffectWinCondition(..), TeamVotingResult, Token, getApiGame, getApiLobby, jsonDecBool, jsonDecChatLine, jsonDecCrusaderRole, jsonDecCurrentRoundState, jsonDecDbGameState, jsonDecDbUser, jsonDecEndCondition, jsonDecGameId, jsonDecGameState, jsonDecHistoricRoundState, jsonDecLeadershipQueue, jsonDecNewChatLine, jsonDecPlayerId, jsonDecPosix, jsonDecProposalState, jsonDecRole, jsonDecRoundResult, jsonDecRoundShape, jsonDecRoundsState, jsonDecSideEffectRole, jsonDecSideEffectWinCondition, jsonDecTeamVotingResult, jsonDecToken, jsonEncBool, jsonEncChatLine, jsonEncCrusaderRole, jsonEncCurrentRoundState, jsonEncDbGameState, jsonEncDbUser, jsonEncEndCondition, jsonEncGameId, jsonEncGameState, jsonEncHistoricRoundState, jsonEncLeadershipQueue, jsonEncNewChatLine, jsonEncPlayerId, jsonEncPosix, jsonEncProposalState, jsonEncRole, jsonEncRoundResult, jsonEncRoundShape, jsonEncRoundsState, jsonEncSideEffectRole, jsonEncSideEffectWinCondition, jsonEncTeamVotingResult, jsonEncToken, maybeBoolToIntStr, postApiLobby, postApiLogin, postApiUser)
 
 -- The following module comes from bartavelle/json-helpers
 
@@ -58,6 +58,20 @@ jsonDecGameId =
 jsonEncGameId : GameId -> Value
 jsonEncGameId val =
     Json.Encode.int val
+
+
+type alias Token =
+    String
+
+
+jsonDecToken : Json.Decode.Decoder Token
+jsonDecToken =
+    Json.Decode.string
+
+
+jsonEncToken : Token -> Value
+jsonEncToken val =
+    Json.Encode.string val
 
 
 type alias ChatLine =
@@ -580,8 +594,8 @@ jsonEncDbGameState val =
         ]
 
 
-getApiLobby : Maybe Int -> (Result Http.Error (List ChatLine) -> msg) -> Cmd msg
-getApiLobby query_since toMsg =
+getApiLobby : Token -> Maybe Int -> (Result Http.Error (List ChatLine) -> msg) -> Cmd msg
+getApiLobby header_Authorization query_since toMsg =
     let
         params =
             List.filterMap identity
@@ -596,9 +610,11 @@ getApiLobby query_since toMsg =
         { method =
             "GET"
         , headers =
-            []
+            List.filterMap identity
+                [ Maybe.map (Http.header "Authorization" << String.fromInt) (Just header_Authorization)
+                ]
         , url =
-            Url.Builder.crossOrigin "http://127.0.0.1:8001"
+            Url.Builder.crossOrigin "http://localhost:8001"
                 [ "api"
                 , "lobby"
                 ]
@@ -614,8 +630,8 @@ getApiLobby query_since toMsg =
         }
 
 
-postApiLobby : NewChatLine -> (Result Http.Error () -> msg) -> Cmd msg
-postApiLobby body toMsg =
+postApiLobby : Token -> NewChatLine -> (Result Http.Error () -> msg) -> Cmd msg
+postApiLobby header_Authorization body toMsg =
     let
         params =
             List.filterMap identity
@@ -627,9 +643,11 @@ postApiLobby body toMsg =
         { method =
             "POST"
         , headers =
-            []
+            List.filterMap identity
+                [ Maybe.map (Http.header "Authorization" << String.fromInt) (Just header_Authorization)
+                ]
         , url =
-            Url.Builder.crossOrigin "http://127.0.0.1:8001"
+            Url.Builder.crossOrigin "http://localhost:8001"
                 [ "api"
                 , "lobby"
                 ]
@@ -668,7 +686,7 @@ getApiGame toMsg =
         , headers =
             []
         , url =
-            Url.Builder.crossOrigin "http://127.0.0.1:8001"
+            Url.Builder.crossOrigin "http://localhost:8001"
                 [ "api"
                 , "game"
                 ]
@@ -699,7 +717,7 @@ postApiUser body toMsg =
         , headers =
             []
         , url =
-            Url.Builder.crossOrigin "http://127.0.0.1:8001"
+            Url.Builder.crossOrigin "http://localhost:8001"
                 [ "api"
                 , "user"
                 ]
@@ -738,7 +756,7 @@ postApiLogin body toMsg =
         , headers =
             []
         , url =
-            Url.Builder.crossOrigin "http://127.0.0.1:8001"
+            Url.Builder.crossOrigin "http://localhost:8001"
                 [ "api"
                 , "login"
                 ]

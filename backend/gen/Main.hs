@@ -1,11 +1,15 @@
-{-# LANGUAGE DataKinds, FlexibleContexts, FlexibleInstances, LambdaCase, MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings, TypeOperators                                                  #-}
+{-# LANGUAGE DataKinds, FlexibleContexts, FlexibleInstances, LambdaCase, MultiParamTypeClasses     #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, TypeApplications, TypeFamilies, TypeOperators #-}
+{-# LANGUAGE UndecidableInstances                                                                  #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main where
 
+import           Control.Lens
 import qualified Data.Text                    as T
 import           Elm.TyRep
+import           GHC.TypeLits                 (ErrorMessage (Text), KnownSymbol, Symbol, TypeError, symbolVal)
 import           Servant.Auth
+import           Servant.Auth.Client          (Token)
 import           Servant.Elm
 import           Servant.Elm.Internal.Foreign
 import           Servant.Foreign              hiding (Static)
@@ -15,8 +19,33 @@ import Game.Dissidence
 import Game.Dissidence.Db
 import Game.Dissidence.GameState
 
--- TODO: Get this to work.
-instance HasForeign LangElm EType ((Auth '[JWT] Session) :> api) where
+instance IsElmDefinition Token where
+  compileElmDef _ = ETypePrimAlias (EPrimAlias (ETypeName "Token" []) (ETyCon (ETCon "String")))
+
+type family TokenHeaderName xs :: Symbol where
+  TokenHeaderName (Cookie ': xs) = "X-XSRF-TOKEN"
+  TokenHeaderName (JWT ': xs) = "Authorization"
+  TokenHeaderName (x ': xs) = TokenHeaderName xs
+  TokenHeaderName '[] = TypeError (Text "Neither JWT nor cookie auth enabled")
+
+instance
+  ( TokenHeaderName auths ~ header
+  , KnownSymbol header
+  , HasForeignType lang ftype Token
+  , HasForeign lang ftype sub
+  )
+  => HasForeign lang ftype (Auth auths a :> sub) where
+    type Foreign ftype (Auth auths a :> sub) = Foreign ftype sub
+
+    foreignFor lang Proxy Proxy req =
+      foreignFor lang Proxy subP $ req & reqHeaders <>~ [HeaderArg arg]
+      where
+        arg   = Arg
+          { _argName = PathSegment . T.pack $ symbolVal @header Proxy
+          , _argType = token
+          }
+        token = typeFor lang (Proxy @ftype) (Proxy @Token)
+        subP  = Proxy @sub
 
 myElmOpts :: ElmOptions
 myElmOpts = defElmOptions
@@ -64,6 +93,7 @@ main =
     myElmImports
     "../frontend/api/"
     [ DefineElm (Proxy :: Proxy GameId)
+    , DefineElm (Proxy :: Proxy Token)
     , DefineElm (Proxy :: Proxy ChatLine)
     , DefineElm (Proxy :: Proxy NewChatLine)
     , DefineElm (Proxy :: Proxy PlayerId)

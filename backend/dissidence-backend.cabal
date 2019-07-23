@@ -94,8 +94,10 @@ executable elmgen
   build-depends:       base ^>=4.12.0.0
                      , dissidence-backend
                      , elm-bridge
+                     , lens
                      , servant-elm
                      , servant-auth
+                     , servant-auth-client
                      , servant-foreign
                      , text
   hs-source-dirs:      gen
