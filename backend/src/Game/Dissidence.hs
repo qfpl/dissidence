@@ -4,28 +4,33 @@ module Game.Dissidence where
 
 import Control.Lens
 
---import           Control.Monad.Error.Lens           (throwing)
+import           Control.Monad                        (unless)
+import           Control.Monad.Error.Lens             (throwing)
 import           Control.Monad.Except                 (ExceptT, runExceptT)
 import           Control.Monad.IO.Class               (MonadIO, liftIO)
 import           Control.Monad.Reader                 (ReaderT, runReaderT)
-import qualified Data.ByteString.Lazy.Char8           as C8
+import           Data.Aeson                           (FromJSON, ToJSON)
+import qualified Data.ByteString.Lazy.Char8           as LC8
 import           Data.Generics.Product                (field)
-import           Database.SQLite.Simple               (Connection)
+import           Data.Text                            (Text)
 import           Database.SQLite.SimpleErrors.Types   (SQLiteResponse)
 import           GHC.Generics                         (Generic)
 import           Network.Wai.Handler.Warp             (run)
-import           Network.Wai.Middleware.Cors          (cors, corsRequestHeaders, simpleCorsResourcePolicy)
+import           Network.Wai.Middleware.Cors          (cors, corsOrigins, corsRequestHeaders,
+                                                       simpleCorsResourcePolicy)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
+import           Servant.Auth.Server
 
 import Game.Dissidence.Config (load)
 import Game.Dissidence.Db     (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
                                DbConstraints, DbError (..), DbGameState, DbUser, GameId (..), NewChatLine,
                                Posix, checkLogin, initDb, insertChatLine, insertUser, selectChatLines,
                                selectGameState)
-import Game.Dissidence.Env    (Env, configToEnv, withEnvDbConnection)
+import Game.Dissidence.Env    (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath, envJwtSettings,
+                               withEnvDbConnection)
 
-data AppError = AppServantErr ServantErr | AppDbError DbError deriving (Show, Generic)
+data AppError = AppLoginFailed | AppRequireUser | AppDbError DbError deriving (Show, Generic)
 makeClassyPrisms ''AppError
 
 instance AsDbError AppError where
@@ -37,7 +42,19 @@ instance AsDbLogicError AppError where
 instance AsSQLiteResponse AppError where
   _SQLiteResponse = _AppDbError . _SQLiteResponse
 
-type AppConstraints e r m = (DbConstraints e r m, AsAppError e)
+class HasCookieSettings a where
+  cookieSettings :: Getter a CookieSettings
+
+class HasJwtSettings a where
+  jwtSettings :: Getter a JWTSettings
+
+instance HasCookieSettings EnvWConnection where
+  cookieSettings = envCookieSettings
+
+instance HasJwtSettings EnvWConnection where
+  jwtSettings = envJwtSettings
+
+type AppConstraints e r m = (DbConstraints e r m, HasCookieSettings r, HasJwtSettings r, AsAppError e)
 
 type ChatApi
   =    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
@@ -49,7 +66,8 @@ type UserApi
   =    ReqBody '[JSON] DbUser :> Post '[JSON] ()
 
 type LoginApi
-  =    ReqBody '[JSON] DbUser :> Post '[JSON] Bool
+  = ReqBody '[JSON] DbUser :> PostNoContent '[JSON]
+    (Headers '[ Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] ())
 
 type Api = "api" :>
   ("lobby" :> ChatApi
@@ -57,6 +75,12 @@ type Api = "api" :>
   :<|> "user" :> UserApi
   :<|> "login" :> LoginApi
   )
+
+data Session = Session { username :: Text } deriving Generic
+instance ToJSON Session
+instance FromJSON Session
+instance ToJWT Session
+instance FromJWT Session
 
 api :: Proxy Api
 api = Proxy
@@ -77,33 +101,49 @@ userPost :: AppConstraints e r m => DbUser -> m ()
 userPost = insertUser
 
 -- TODO: Actually do proper auth stuff
-loginPost :: AppConstraints e r m => DbUser -> m Bool
-loginPost = checkLogin
+loginPost
+  :: AppConstraints e r m
+  => DbUser
+  -> m (Headers '[Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] ())
+loginPost dbUser = do
+  cookieS <- view cookieSettings
+  jwtS <- view jwtSettings
+  b <- checkLogin dbUser
+  unless b $ throwing _AppRequireUser ()
+  mApplyCookies <- liftIO $ acceptLogin cookieS jwtS (Session (dbUser ^. field @"dbUsername"))
+  case mApplyCookies of
+    Nothing         -> throwing _AppRequireUser ()
+    Just appCookies -> pure $ appCookies ()
+
 
 app :: Env -> Application
 app e = serve api (hoistServer api (appHandler e) server)
 
-runDbContext :: (AsSQLiteResponse e, MonadIO m) => Env -> ExceptT e (ReaderT Connection IO) a -> m (Either e a)
+runDbContext :: (AsSQLiteResponse e, MonadIO m) => Env -> ExceptT e (ReaderT EnvWConnection IO) a -> m (Either e a)
 runDbContext e = liftIO . withEnvDbConnection e . runReaderT . runExceptT
 
-appHandler :: Env -> ExceptT AppError (ReaderT Connection IO) a -> Handler a
+appHandler :: Env -> ExceptT AppError (ReaderT EnvWConnection IO) a -> Handler a
 appHandler e prog = do
   res <- runDbContext e prog
   case res of
-    Left (AppDbError err)    -> throwError $ err500 { errBody = "Database error: " <> C8.pack (show err) }
-    Left (AppServantErr err) -> throwError err
-    Right a                  -> pure a
+    Left (AppDbError err) -> throwError $ err500 { errBody = "Database error: " <> LC8.pack (show err) }
+    Left AppLoginFailed   -> throwError err403
+    Left AppRequireUser   -> throwError err401
+    Right a               -> pure a
 
 runApp :: IO ()
 runApp = do
   c  <- load "./config" -- TODO: Opts for path
   e  <- configToEnv c
-  putStrLn $ "Opening/Initialising sqlite database " <> (e ^. field @"dbPath")
+  putStrLn $ "Opening/Initialising sqlite database " <> (e ^.envDbPath)
   initRes <- runDbContext e initDb
   case initRes of
     Left (err ::SQLiteResponse) -> error $ "DB Failed to initialise: " <> (show err)
     Right _  -> do
       let port = c ^. field @"port" . to fromIntegral
       putStrLn $ "Starting server on port " <> (show port)
-      let corsPolicy = simpleCorsResourcePolicy { corsRequestHeaders = ["content-type"]}
+      let corsPolicy = simpleCorsResourcePolicy
+            { corsRequestHeaders = ["content-type"]
+            , corsOrigins = Just (["http://localhost:1234"], True)
+            }
       run port . cors (const (Just corsPolicy)) . logStdoutDev . app $ e

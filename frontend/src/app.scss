@@ -142,23 +142,28 @@ input {
       font-family: $mono-family;
     }
   }
+
   form {
     width: 100%;
     ul {
       list-style: none;
+      margin-top: 0.5em;
       padding-inline-start: 0;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
 
-      label {
-        margin-right: 0.5em;
-      }
       li {
-        width: 100%;
-        display: flex;
-        align-items: center;
+        &.chat-message {
+          flex-grow: 5; 
+        }
+        &.chat-warnings {
+          width: 100%;
+        }
+        .chat-message-input {
+          width: 100%;
+        }
       }
-    }
-    #chatmessage {
-      flex-grow: 5; 
     }
   }
 }

@@ -22,6 +22,7 @@ module Game.Dissidence.Db
   , AsSQLiteResponse(..)
   , AsDbError(..)
   , AsDbLogicError(..)
+  , HasConnection(..)
   , GameId(..)
   , DbError(..)
   , Posix

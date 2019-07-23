@@ -574,7 +574,7 @@ postApiUser body toMsg =
                 Nothing
             }
 
-postApiLogin : DbUser -> (Result Http.Error  (Bool)  -> msg) -> Cmd msg
+postApiLogin : DbUser -> (Result Http.Error  (())  -> msg) -> Cmd msg
 postApiLogin body toMsg =
     let
         params =
@@ -596,7 +596,10 @@ postApiLogin body toMsg =
             , body =
                 Http.jsonBody (jsonEncDbUser body)
             , expect =
-                Http.expectJson toMsg jsonDecBool
+                Http.expectString 
+                     (\x -> case x of
+                     Err e -> toMsg (Err e)
+                     Ok _ -> toMsg (Ok ()))
             , timeout =
                 Nothing
             , tracker =

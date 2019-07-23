@@ -33,16 +33,20 @@ library
                      , dhall
                      , elm-bridge
                      , generic-lens
+                     , jose
                      , lens
                      , mtl
                      , pwstore-fast
                      , random-extras
+                     , resource-pool
                      , rvar
                      , random-fu
                      , random-source
                      , servant
                      , servant-elm
                      , servant-server
+                     , servant-auth
+                     , servant-auth-server
                      , sqlite-simple
                      , sqlite-simple-errors
                      , text

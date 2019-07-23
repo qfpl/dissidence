@@ -1,4 +1,5 @@
 {
   port = 8001,
-  dbPath = "dissidence.db"
+  dbPath = "dissidence.db",
+  jwtKey = "vt82gwBJLSHUNXO0D6B6FciWQYBgkWJhttqELfjpiIAsdzWGKaNfwFAtPkMWQTj5uL3uiowNX4QeccI3ieXNdv6Sj8CqZF8hJ60skG4HgdC3beAkeMdA8juQPWYLTuqoHxNp0FD8jTMQvN8Z46Bi2KlygHVKPo4hqv19yXzspyBuaj4OsIe4byl6sQk3pbhUQClon36POlFrQ1rVGJdtN7cRXgZw4ejZRLt8wUe6tbUE0KSlQjoFVwNAWFiO4rDF"
 }

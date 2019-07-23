@@ -5,6 +5,7 @@ import Browser.Navigation as Nav
 import Generated.Api as BE
 import Html as H
 import Html.Attributes as HA
+import Html.Attributes.Aria as HAA
 import Html.Events as HE
 import Http
 import List.Nonempty as NEL
@@ -20,6 +21,7 @@ import Utils exposing (disabledIfLoading, maybe, maybeToList, remoteDataError)
 
 type Msg
     = SetNewLine String
+    | Tick Time.Posix
     | Submit
     | HandleNewLineResp (Result Http.Error ())
     | HandleListResp (Result Http.Error (List BE.ChatLine))
@@ -54,7 +56,7 @@ init key user =
 
 subscriptions : Session.User -> Model -> Sub PageMsg
 subscriptions _ _ =
-    Sub.none
+    Time.every 2000 (Page.wrapChildMsg Tick)
 
 
 update : Nav.Key -> Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
@@ -78,6 +80,9 @@ update key user msg model =
                     , Cmd.none
                     )
 
+        Tick t ->
+            ( model, BE.getApiLobby Nothing (HandleListResp >> Page.ChildMsg) )
+
         HandleListResp (Err e) ->
             ( { model | chatListError = Just (Utils.httpErrorToStr e) }, Cmd.none )
 
@@ -90,7 +95,7 @@ update key user msg model =
                     RemoteData.fromResult r
                         |> RemoteData.mapError Utils.httpErrorToStr
             in
-            ( { model | submission = remoteData }
+            ( { model | submission = remoteData, newChatLine = "" }
             , RemoteData.unwrap
                 Cmd.none
                 (\us -> BE.getApiLobby Nothing (Page.wrapChildMsg HandleListResp))
@@ -135,13 +140,13 @@ view model =
             , H.div [ HA.class "chatbox" ] (List.map chatLineView model.chatLines)
             , H.form [ HE.onSubmit Submit ]
                 [ H.ul []
-                    [ H.li []
-                        [ H.label [ HA.for "chat-message" ] [ H.text "Chat Message" ]
-                        , H.input
+                    [ H.li [ HA.class "chat-message" ]
+                        [ H.input
                             [ HA.placeholder "type a chat message"
                             , HE.onInput SetNewLine
                             , HA.value model.newChatLine
-                            , HA.id "chat-message"
+                            , HA.class "chat-message-input"
+                            , HAA.ariaLabel "Enter Chat Message"
                             ]
                             []
                         ]
@@ -164,7 +169,7 @@ view model =
 
 chatWarnings : NEL.Nonempty String -> H.Html Msg
 chatWarnings errors =
-    H.li [] [ H.ul [ HA.class "warn" ] (List.map (\em -> H.li [] [ H.text em ]) (NEL.toList errors)) ]
+    H.li [ HA.class "chat-warnings" ] [ H.ul [ HA.class "warn" ] (List.map (\em -> H.li [] [ H.text em ]) (NEL.toList errors)) ]
 
 
 chatLineView : BE.ChatLine -> H.Html Msg

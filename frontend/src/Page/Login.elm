@@ -19,7 +19,7 @@ type Msg
     = SetUsername String
     | SetPassword String
     | Submit
-    | HandleResp (Result Http.Error Bool)
+    | HandleResp (Result Http.Error ())
 
 
 type alias Model =
@@ -69,14 +69,7 @@ update key user msg model =
                 remoteData =
                     RemoteData.fromResult r
                         |> RemoteData.mapError Utils.httpErrorToStr
-                        |> RemoteData.andThen
-                            (\b ->
-                                if not b then
-                                    RemoteData.Failure "Login Failed"
-
-                                else
-                                    RemoteData.succeed { username = model.username }
-                            )
+                        |> RemoteData.map (always { username = model.username })
             in
             ( { model | submission = remoteData }
             , RemoteData.unwrap
