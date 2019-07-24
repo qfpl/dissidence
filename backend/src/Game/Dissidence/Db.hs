@@ -42,12 +42,12 @@ import           Crypto.PasswordStore               (makePassword, verifyPasswor
 import           Data.Aeson                         (FromJSON, ToJSON, eitherDecode, encode)
 import           Data.Foldable                      (traverse_)
 import qualified Data.Generics.Product              as GP
-import           Data.Maybe                         (isNothing)
+import           Data.Maybe                         (fromMaybe, isNothing)
 import           Data.Text                          (Text)
 import           Data.Text.Encoding                 (decodeUtf8, encodeUtf8)
 import           Database.SQLite.Simple             (Connection, FromRow (..), Only (..), Query,
                                                      ResultError (ConversionFailed), SQLData, ToRow (..),
-                                                     execute, execute_, field, lastInsertRowId, query, query_)
+                                                     execute, execute_, field, lastInsertRowId, query)
 import           Database.SQLite.Simple.FromField   (FromField (..))
 import           Database.SQLite.Simple.Internal    (RowParser)
 import           Database.SQLite.Simple.ToField     (ToField (..))
@@ -152,9 +152,10 @@ type SqLiteConstraints e r m =
 
 type DbConstraints e r m = (SqLiteConstraints e r m, AsDbLogicError e)
 
-selectChatLines :: SqLiteConstraints e r m => Maybe GameId -> m [ChatLine]
-selectChatLines Nothing = query_' "SELECT epoch, game_id, username, text FROM chat_line"
-selectChatLines (Just gId) = query' "SELECT epoch, game_id, username, text FROM chat_line WHERE game_id = ?" (Only gId)
+selectChatLines :: SqLiteConstraints e r m => Maybe Posix -> Maybe GameId -> m [ChatLine]
+selectChatLines eMay gIdMay = query'
+  "SELECT epoch, game_id, username, text FROM chat_line WHERE epoch > ? AND game_id IS ?"
+  (fromMaybe 0 eMay,gIdMay)
 
 insertChatLine :: DbConstraints e r m => NewChatLine -> m ()
 insertChatLine = execute' "INSERT INTO chat_line (game_id,username, text) VALUES (?,?,?)"
@@ -227,9 +228,6 @@ insert q a =
   withConnIO $ \conn -> do
     execute conn q a
     fromIntegral <$> lastInsertRowId conn
-
-query_' :: (SqLiteConstraints e r m, FromRow a) => Query -> m [a]
-query_' q = withConnIO (\c -> query_ c q)
 
 query' :: (SqLiteConstraints e r m, FromRow a, ToRow i) => Query -> i -> m [a]
 query' q i = withConnIO (\c -> query c q i)

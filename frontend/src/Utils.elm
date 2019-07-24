@@ -1,4 +1,4 @@
-module Utils exposing (disabledIfLoading, httpErrorToStr, maybe, maybeToList, onEnterPressed, remoteDataError)
+module Utils exposing (disabledIfLoading, httpErrorToStr, maybe, maybeIsNothing, maybeToList, onEnterPressed, remoteDataError)
 
 import Html as H
 import Html.Attributes as HA
@@ -25,6 +25,11 @@ remoteDataError rd =
 maybe : b -> (a -> b) -> Maybe a -> b
 maybe z f =
     Maybe.map f >> Maybe.withDefault z
+
+
+maybeIsNothing : Maybe a -> Bool
+maybeIsNothing =
+    maybe True (always False)
 
 
 maybeToList : Maybe a -> List a

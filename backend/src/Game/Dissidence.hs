@@ -111,7 +111,7 @@ chatApi (Authenticated s) = globalChatGet s :<|> globalChatAppend s
 chatApi _                 = (\_ -> throwing _AppRequireUser ()) :<|> (\_ -> throwing _AppRequireUser ())
 
 globalChatGet :: AppConstraints e r m => Session -> Maybe Posix -> m [ChatLine]
-globalChatGet _ _ = selectChatLines Nothing
+globalChatGet _ p = selectChatLines p Nothing
 
 globalChatAppend :: AppConstraints e r m => Session -> NewChatLine -> m ()
 globalChatAppend _ = insertChatLine

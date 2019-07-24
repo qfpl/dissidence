@@ -1,6 +1,7 @@
 module Page.Lobby exposing (Model, Msg, init, subscriptions, update, view)
 
 import Browser
+import Browser.Dom as Dom
 import Browser.Navigation as Nav
 import Generated.Api as BE
 import Html as H
@@ -15,12 +16,14 @@ import RemoteData exposing (RemoteData)
 import Result
 import Route
 import Session
+import Task
 import Time
 import Utils exposing (disabledIfLoading, maybe, maybeToList, remoteDataError)
 
 
 type Msg
-    = SetNewLine String
+    = NoOp
+    | SetNewLine String
     | Tick Time.Posix
     | Submit
     | HandleNewLineResp (Result Http.Error ())
@@ -50,18 +53,21 @@ init key user =
       , validationIssues = []
       , submission = RemoteData.NotAsked
       }
-    , BE.getApiLobby user.token Nothing (HandleListResp >> Page.ChildMsg)
+    , Task.perform (Page.wrapChildMsg Tick) Time.now
     )
 
 
 subscriptions : Session.User -> Model -> Sub PageMsg
 subscriptions _ _ =
-    Time.every 2000 (Page.wrapChildMsg Tick)
+    Time.every 5000 (Page.wrapChildMsg Tick)
 
 
 update : Nav.Key -> Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
 update key user msg model =
     case msg of
+        NoOp ->
+            ( model, Cmd.none )
+
         SetNewLine l ->
             ( { model | newChatLine = l }, Cmd.none )
 
@@ -80,14 +86,29 @@ update key user msg model =
                     , Cmd.none
                     )
 
-        Tick t ->
-            ( model, BE.getApiLobby user.token Nothing (HandleListResp >> Page.ChildMsg) )
+        Tick time ->
+            ( model
+            , BE.getApiLobby
+                user.token
+                (model.chatLines |> List.map (.chatLineTime >> Time.posixToMillis) |> List.maximum)
+                (Page.wrapChildMsg HandleListResp)
+            )
 
         HandleListResp (Err e) ->
             ( { model | chatListError = Just (Utils.httpErrorToStr e) }, Cmd.none )
 
         HandleListResp (Ok l) ->
-            ( { model | chatListError = Nothing, chatLines = l }, Cmd.none )
+            ( { model
+                | chatListError = Nothing
+                , chatLines =
+                    if model.chatLines == [] then
+                        l
+
+                    else
+                        model.chatLines ++ l
+              }
+            , jumpToChatBottom
+            )
 
         HandleNewLineResp r ->
             let
@@ -98,9 +119,16 @@ update key user msg model =
             ( { model | submission = remoteData, newChatLine = "" }
             , RemoteData.unwrap
                 Cmd.none
-                (\us -> BE.getApiLobby user.token Nothing (Page.wrapChildMsg HandleListResp))
+                (\us -> Task.perform (Page.wrapChildMsg Tick) Time.now)
                 remoteData
             )
+
+
+jumpToChatBottom : Cmd PageMsg
+jumpToChatBottom =
+    Dom.getViewportOf "chatbox"
+        |> Task.andThen (\info -> Dom.setViewportOf "chatbox" 0 info.scene.height)
+        |> Task.attempt (\_ -> Page.ChildMsg NoOp)
 
 
 
@@ -137,7 +165,7 @@ view model =
     , body =
         [ H.div [ HA.class "chatbox-container" ]
             [ H.h1 [] [ H.text "Lobby" ]
-            , H.div [ HA.class "chatbox" ] (List.map chatLineView model.chatLines)
+            , H.div [ HA.id "chatbox", HA.class "chatbox" ] (List.map chatLineView model.chatLines)
             , H.form [ HE.onSubmit Submit ]
                 [ H.ul []
                     [ H.li [ HA.class "chat-message" ]
