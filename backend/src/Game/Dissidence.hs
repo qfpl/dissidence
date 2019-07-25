@@ -71,7 +71,11 @@ type ChatApi
     :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
     )
 
-type GameApi = Get '[JSON] DbGameState
+type GameApi
+  = Auth '[JWT] Session :>
+    ( Get '[JSON] DbGameState
+    :<|> Post '[JSON] GameId
+    )
 
 type UserApi
   =    ReqBody '[JSON] DbUser :> Post '[JSON] String
