@@ -3,6 +3,7 @@
 module Game.Dissidence.GameState
   ( inputEvent
   , newGame
+  , toGameStateType
   , GameState
   , EndCondition(..)
   , PlayerId(..)
@@ -32,9 +33,18 @@ import qualified Data.Map              as Map
 import           Data.Random.List      (shuffle)
 import           Data.RVar             (MonadRandom, sampleRVar)
 import qualified Data.Set              as Set
+import           Data.Text             (Text)
 
 import Game.Dissidence.GameState.Internal
 
+toGameStateType :: GameState -> Text
+toGameStateType = \case
+  WaitingForPlayers _ _ -> "waiting_for_players"
+  Pregame _ _ -> "pregame"
+  Rounds _ -> "rounds"
+  FiringRound _ _ -> "firing"
+  Complete _ _ _ -> "ended"
+  Aborted _ -> "aborted"
 
 -- We have some non referentially transparent reactions to input events, so we need to
 -- store and replay a little more to recreate the view of the world. The idea is that

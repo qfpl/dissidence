@@ -100,6 +100,7 @@ main =
     myElmImports
     "../frontend/api/"
     [ DefineElm (Proxy :: Proxy GameId)
+    , DefineElm (Proxy :: Proxy JoinableGame)
     , DefineElm (Proxy :: Proxy Token)
     , DefineElm (Proxy :: Proxy ChatLine)
     , DefineElm (Proxy :: Proxy NewChatLine)

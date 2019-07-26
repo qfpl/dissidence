@@ -39,6 +39,26 @@ jsonEncGameId  val = Json.Encode.int val
 
 
 
+type alias JoinableGame  =
+   { joinableGameId: GameId
+   , playerCount: Int
+   }
+
+jsonDecJoinableGame : Json.Decode.Decoder ( JoinableGame )
+jsonDecJoinableGame =
+   Json.Decode.succeed (\pjoinableGameId pplayerCount -> {joinableGameId = pjoinableGameId, playerCount = pplayerCount})
+   |> required "joinableGameId" (jsonDecGameId)
+   |> required "playerCount" (Json.Decode.int)
+
+jsonEncJoinableGame : JoinableGame -> Value
+jsonEncJoinableGame  val =
+   Json.Encode.object
+   [ ("joinableGameId", jsonEncGameId val.joinableGameId)
+   , ("playerCount", Json.Encode.int val.playerCount)
+   ]
+
+
+
 type alias Token  = String
 
 jsonDecToken : Json.Decode.Decoder ( Token )
@@ -494,7 +514,7 @@ getApiLobby header_Authorization query_since toMsg =
                 Nothing
             }
 
-postApiLobby : Token -> NewChatLine -> (Result Http.Error  (())  -> msg) -> Cmd msg
+postApiLobby : Token -> String -> (Result Http.Error  (())  -> msg) -> Cmd msg
 postApiLobby header_Authorization body toMsg =
     let
         params =
@@ -516,7 +536,7 @@ postApiLobby header_Authorization body toMsg =
                     ]
                     params
             , body =
-                Http.jsonBody (jsonEncNewChatLine body)
+                Http.jsonBody (Json.Encode.string body)
             , expect =
                 Http.expectString 
                      (\x -> case x of
@@ -528,8 +548,8 @@ postApiLobby header_Authorization body toMsg =
                 Nothing
             }
 
-getApiGame : (Result Http.Error  (DbGameState)  -> msg) -> Cmd msg
-getApiGame toMsg =
+getApiGamesByGameId : Token -> GameId -> (Result Http.Error  (DbGameState)  -> msg) -> Cmd msg
+getApiGamesByGameId header_Authorization capture_gameId toMsg =
     let
         params =
             List.filterMap identity
@@ -540,11 +560,14 @@ getApiGame toMsg =
             { method =
                 "GET"
             , headers =
-                []
+                List.filterMap identity
+                    [ Maybe.map (Http.header "Authorization") (Just header_Authorization)
+                    ]
             , url =
                 Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
-                    , "game"
+                    , "games"
+                    , capture_gameId |> String.fromInt
                     ]
                     params
             , body =
@@ -557,8 +580,142 @@ getApiGame toMsg =
                 Nothing
             }
 
-postApiUser : DbUser -> (Result Http.Error  (String)  -> msg) -> Cmd msg
-postApiUser body toMsg =
+getApiGamesByGameIdChat : Token -> GameId -> (Maybe Int) -> (Result Http.Error  ((List ChatLine))  -> msg) -> Cmd msg
+getApiGamesByGameIdChat header_Authorization capture_gameId query_since toMsg =
+    let
+        params =
+            List.filterMap identity
+            (List.concat
+                [ [ query_since
+                    |> Maybe.map (String.fromInt >> Url.Builder.string "since") ]
+                ])
+    in
+        Http.request
+            { method =
+                "GET"
+            , headers =
+                List.filterMap identity
+                    [ Maybe.map (Http.header "Authorization") (Just header_Authorization)
+                    ]
+            , url =
+                Url.Builder.crossOrigin "http://localhost:8001"
+                    [ "api"
+                    , "games"
+                    , capture_gameId |> String.fromInt
+                    , "chat"
+                    ]
+                    params
+            , body =
+                Http.emptyBody
+            , expect =
+                Http.expectJson toMsg (Json.Decode.list (jsonDecChatLine))
+            , timeout =
+                Nothing
+            , tracker =
+                Nothing
+            }
+
+postApiGamesByGameIdChat : Token -> GameId -> String -> (Result Http.Error  (())  -> msg) -> Cmd msg
+postApiGamesByGameIdChat header_Authorization capture_gameId body toMsg =
+    let
+        params =
+            List.filterMap identity
+            (List.concat
+                [])
+    in
+        Http.request
+            { method =
+                "POST"
+            , headers =
+                List.filterMap identity
+                    [ Maybe.map (Http.header "Authorization") (Just header_Authorization)
+                    ]
+            , url =
+                Url.Builder.crossOrigin "http://localhost:8001"
+                    [ "api"
+                    , "games"
+                    , capture_gameId |> String.fromInt
+                    , "chat"
+                    ]
+                    params
+            , body =
+                Http.jsonBody (Json.Encode.string body)
+            , expect =
+                Http.expectString 
+                     (\x -> case x of
+                     Err e -> toMsg (Err e)
+                     Ok _ -> toMsg (Ok ()))
+            , timeout =
+                Nothing
+            , tracker =
+                Nothing
+            }
+
+postApiGames : Token -> (Result Http.Error  (GameId)  -> msg) -> Cmd msg
+postApiGames header_Authorization toMsg =
+    let
+        params =
+            List.filterMap identity
+            (List.concat
+                [])
+    in
+        Http.request
+            { method =
+                "POST"
+            , headers =
+                List.filterMap identity
+                    [ Maybe.map (Http.header "Authorization") (Just header_Authorization)
+                    ]
+            , url =
+                Url.Builder.crossOrigin "http://localhost:8001"
+                    [ "api"
+                    , "games"
+                    ]
+                    params
+            , body =
+                Http.emptyBody
+            , expect =
+                Http.expectJson toMsg jsonDecGameId
+            , timeout =
+                Nothing
+            , tracker =
+                Nothing
+            }
+
+getApiGamesJoinable : Token -> (Result Http.Error  ((List JoinableGame))  -> msg) -> Cmd msg
+getApiGamesJoinable header_Authorization toMsg =
+    let
+        params =
+            List.filterMap identity
+            (List.concat
+                [])
+    in
+        Http.request
+            { method =
+                "GET"
+            , headers =
+                List.filterMap identity
+                    [ Maybe.map (Http.header "Authorization") (Just header_Authorization)
+                    ]
+            , url =
+                Url.Builder.crossOrigin "http://localhost:8001"
+                    [ "api"
+                    , "games"
+                    , "joinable"
+                    ]
+                    params
+            , body =
+                Http.emptyBody
+            , expect =
+                Http.expectJson toMsg (Json.Decode.list (jsonDecJoinableGame))
+            , timeout =
+                Nothing
+            , tracker =
+                Nothing
+            }
+
+postApiUsers : DbUser -> (Result Http.Error  (String)  -> msg) -> Cmd msg
+postApiUsers body toMsg =
     let
         params =
             List.filterMap identity
@@ -573,7 +730,7 @@ postApiUser body toMsg =
             , url =
                 Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
-                    , "user"
+                    , "users"
                     ]
                     params
             , body =

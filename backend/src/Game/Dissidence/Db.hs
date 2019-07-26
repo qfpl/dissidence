@@ -1,5 +1,5 @@
-{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, FlexibleContexts, NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, TemplateHaskell, TypeApplications   #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, FlexibleContexts, LambdaCase, NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, TemplateHaskell, TypeApplications               #-}
 module Game.Dissidence.Db
   ( initDb
   , DbConstraints
@@ -8,6 +8,7 @@ module Game.Dissidence.Db
   , selectGameState
   , insertGameState
   , updateGameState
+  , listJoinableGames
   , insertUser
   , checkLogin
 --  , insertUser
@@ -16,8 +17,10 @@ module Game.Dissidence.Db
  -- , selectGameState
   , runDb
   , ChatLine
-  , NewChatLine
+  , NewChatLine(..)
   , DbGameState
+  , JoinableGame(..)
+  , NewDbGameState(..)
   , DbUser
   , AsSQLiteResponse(..)
   , AsDbError(..)
@@ -42,22 +45,25 @@ import           Crypto.PasswordStore               (makePassword, verifyPasswor
 import           Data.Aeson                         (FromJSON, ToJSON, eitherDecode, encode)
 import           Data.Foldable                      (traverse_)
 import qualified Data.Generics.Product              as GP
-import           Data.Maybe                         (fromMaybe, isNothing)
+import           Data.Maybe                         (fromMaybe, isNothing, mapMaybe)
+import qualified Data.Set                           as Set
 import           Data.Text                          (Text)
 import           Data.Text.Encoding                 (decodeUtf8, encodeUtf8)
 import           Database.SQLite.Simple             (Connection, FromRow (..), Only (..), Query,
                                                      ResultError (ConversionFailed), SQLData, ToRow (..),
-                                                     execute, execute_, field, lastInsertRowId, query)
+                                                     execute, execute_, field, lastInsertRowId, query, query_)
 import           Database.SQLite.Simple.FromField   (FromField (..))
 import           Database.SQLite.Simple.Internal    (RowParser)
 import           Database.SQLite.Simple.ToField     (ToField (..))
 import           Database.SQLite.SimpleErrors       (runDBAction)
 import           Database.SQLite.SimpleErrors.Types (SQLiteResponse)
 import           GHC.Generics                       (Generic)
+import           Servant                            (FromHttpApiData (..))
 import           Servant.Elm                        (deriveBoth)
 
-import Game.Dissidence.AesonOptions (ourAesonOptions)
-import Game.Dissidence.GameState    (GameState)
+import Game.Dissidence.AesonOptions       (ourAesonOptions)
+import Game.Dissidence.GameState          (toGameStateType)
+import Game.Dissidence.GameState.Internal (GameState (WaitingForPlayers))
 
 toAesonField :: ToJSON a => a -> SQLData
 toAesonField = toField . encode
@@ -74,6 +80,10 @@ instance ToField GameId where
 
 instance FromField GameId where
   fromField = fmap GameId . fromField
+
+instance FromHttpApiData GameId where
+  parseUrlPiece = fmap GameId . parseUrlPiece
+
 
 data ChatLine = ChatLine
   { chatLineTime     :: Posix
@@ -105,7 +115,12 @@ instance FromRow DbGameState where
 newtype NewDbGameState = NewDbGameState { unNewDbGameState :: GameState } deriving (Show, Generic)
 
 instance ToRow NewDbGameState where
-  toRow (NewDbGameState gs) = [toAesonField gs]
+  toRow (NewDbGameState gs) = [toField (toGameStateType gs), toAesonField gs]
+
+data JoinableGame = JoinableGame
+  { joinableGameId :: GameId
+  , playerCount    :: Int
+  }
 
 data DbUser = DbUser
   { dbUsername     :: Text
@@ -120,7 +135,7 @@ instance ToRow DbUser where
 
 concat <$> mapM
   (deriveBoth ourAesonOptions)
-  [''GameId, ''DbGameState, ''NewDbGameState, ''ChatLine, ''NewChatLine, ''DbUser]
+  [''GameId, ''DbGameState, ''NewDbGameState, ''JoinableGame, ''ChatLine, ''NewChatLine, ''DbUser]
 
 class HasConnection s where
   connection :: Lens' s Connection
@@ -165,11 +180,21 @@ selectGameState gId = do
   gs <- query' "SELECT id, data FROM game_state WHERE id = ?" (Only gId)
   maybe (throwing _GameDoesntExist gId) pure (gs^?_head)
 
+listJoinableGames :: DbConstraints e r m => m [JoinableGame]
+listJoinableGames = do
+  dbGameSs <- query_' "SELECT id, data FROM game_state WHERE state_type = 'waiting_for_players'"
+  pure $ mapMaybe countWaiting dbGameSs
+  where
+    countWaiting (DbGameState gId (WaitingForPlayers _ ps)) = Just (JoinableGame gId (Set.size ps + 1))
+    countWaiting _                                          = Nothing
+
 updateGameState :: DbConstraints e r m => DbGameState -> m ()
-updateGameState (DbGameState gId d)= execute' "UPDATE game_state SET data = ? WHERE id = ?" (toAesonField d, gId)
+updateGameState (DbGameState gId d) = execute'
+  "UPDATE game_state SET data = ?, state_type = ? WHERE id = ?"
+  (toAesonField d, toGameStateType d, gId)
 
 insertGameState :: DbConstraints e r m => NewDbGameState -> m GameId
-insertGameState = fmap GameId . insert "INSERT INTO game_state (data) VALUES (?)"
+insertGameState = fmap GameId . insert "INSERT INTO game_state (state_type, data) VALUES (?,?)"
 
 findUser :: DbConstraints e r m => Text -> m (Maybe DbUser)
 findUser = fmap (^?_head) . query' "SELECT username, password FROM user WHERE username = ?" . Only
@@ -195,6 +220,7 @@ initDb =
     qGameState = "CREATE TABLE IF NOT EXISTS game_state\
       \( id INTEGER PRIMARY KEY\
       \, epoch INTEGER NOT NULL DEFAULT (strftime('%s',CURRENT_TIMESTAMP))\
+      \, state_type TEXT NOT NULL\
       \, data TEXT NOT NULL\
       \)"
     qChatLines = "CREATE TABLE IF NOT EXISTS chat_line\
@@ -231,6 +257,9 @@ insert q a =
 
 query' :: (SqLiteConstraints e r m, FromRow a, ToRow i) => Query -> i -> m [a]
 query' q i = withConnIO (\c -> query c q i)
+
+query_' :: (SqLiteConstraints e r m, FromRow a) => Query -> m [a]
+query_' q = withConnIO (\c -> query_ c q)
 
 execute' :: (SqLiteConstraints e r m, ToRow i) => Query -> i -> m ()
 execute' q i = withConnIO (\c -> execute c q i)

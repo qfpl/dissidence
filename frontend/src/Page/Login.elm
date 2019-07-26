@@ -81,7 +81,7 @@ update key user msg model =
 
 view : Maybe Session.User -> Model -> Browser.Document Msg
 view user model =
-    { title = "Dissidence: Compositional Crusaders - Login"
+    { title = "Dissidence - Login"
     , body =
         [ H.div [ HA.class "login-box" ]
             [ H.h1 [] [ H.text "Login" ]

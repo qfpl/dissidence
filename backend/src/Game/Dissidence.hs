@@ -25,13 +25,15 @@ import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
 import           Servant.Auth.Server
 
-import Game.Dissidence.Config (load)
-import Game.Dissidence.Db     (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
-                               DbConstraints, DbError (..), DbGameState, DbUser, GameId (..), NewChatLine,
-                               Posix, checkLogin, initDb, insertChatLine, insertUser, selectChatLines,
-                               selectGameState)
-import Game.Dissidence.Env    (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath, envJwtSettings,
-                               withEnvDbConnection)
+import Game.Dissidence.Config    (load)
+import Game.Dissidence.Db        (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
+                                  DbConstraints, DbError (..), DbGameState, DbUser, GameId (..), JoinableGame,
+                                  NewChatLine (..), NewDbGameState (..), Posix, checkLogin, initDb,
+                                  insertChatLine, insertGameState, insertUser, listJoinableGames,
+                                  selectChatLines, selectGameState)
+import Game.Dissidence.Env       (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath,
+                                  envJwtSettings, withEnvDbConnection)
+import Game.Dissidence.GameState (PlayerId (..), newGame)
 
 data AppError = AppJwtMisconfiguration Error | AppLoginFailed | AppRequireUser | AppDbError DbError deriving (Show, Generic)
 makeClassyPrisms ''AppError
@@ -65,16 +67,17 @@ instance HasJwtSettings EnvWConnection where
 
 type AppConstraints e r m = (DbConstraints e r m, HasCookieSettings r, HasJwtSettings r, AsAppError e)
 
-type ChatApi
-  = Auth '[JWT] Session :>
-    ( QueryParam "since" Posix :> Get '[JSON] [ChatLine]
-    :<|> ReqBody '[JSON] NewChatLine :> Post '[JSON] ()
-    )
+type ChatApi = Auth '[JWT] Session :> AuthedChatApi
+
+type AuthedChatApi
+  =    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
+  :<|> ReqBody '[JSON] Text :> Post '[JSON] ()
 
 type GameApi
   = Auth '[JWT] Session :>
-    ( Get '[JSON] DbGameState
+    ( Capture "gameId" GameId :> (Get '[JSON] DbGameState :<|> "chat" :> AuthedChatApi)
     :<|> Post '[JSON] GameId
+    :<|> "joinable" :> Get '[JSON] [JoinableGame]
     )
 
 type UserApi
@@ -85,8 +88,8 @@ type LoginApi
 
 type Api = "api" :>
   ("lobby" :> ChatApi
-  :<|> "game" :> GameApi
-  :<|> "user" :> UserApi
+  :<|> "games" :> GameApi
+  :<|> "users" :> UserApi
   :<|> "login" :> LoginApi
   )
 
@@ -108,20 +111,36 @@ api :: Proxy Api
 api = Proxy
 
 server :: AppConstraints e r m => ServerT Api m
-server = chatApi :<|> gameGet :<|> userPost :<|> loginPost
+server = chatApi Nothing :<|> gameApi :<|> userPost :<|> loginPost
 
-chatApi :: (AppConstraints e r m) => ServerT ChatApi m
-chatApi (Authenticated s) = globalChatGet s :<|> globalChatAppend s
-chatApi _                 = (\_ -> throwing _AppRequireUser ()) :<|> (\_ -> throwing _AppRequireUser ())
+reqUser :: (MonadError e m, AsAppError e) => m a
+reqUser = throwing _AppRequireUser ()
 
-globalChatGet :: AppConstraints e r m => Session -> Maybe Posix -> m [ChatLine]
-globalChatGet _ p = selectChatLines p Nothing
+gameApi :: (AppConstraints e r m) => ServerT GameApi m
+gameApi (Authenticated s) = (\gId -> gameGet s gId :<|> authedChatApi s (Just gId)) :<|> gameNew s :<|> joinableGames s
+gameApi _                 = (const (reqUser :<|> (const reqUser :<|> const reqUser))) :<|> reqUser :<|> reqUser
 
-globalChatAppend :: AppConstraints e r m => Session -> NewChatLine -> m ()
-globalChatAppend _ = insertChatLine
+chatApi :: (AppConstraints e r m) => Maybe GameId -> ServerT ChatApi m
+chatApi gIdMay (Authenticated s) = authedChatApi s gIdMay
+chatApi _ _                      = (const reqUser) :<|> (const reqUser)
 
-gameGet :: AppConstraints e r m => m DbGameState
-gameGet = selectGameState (GameId 1)
+authedChatApi :: (AppConstraints e r m) => Session -> Maybe GameId -> ServerT AuthedChatApi m
+authedChatApi s gIdMay = chatGet s gIdMay :<|> chatAppend s gIdMay
+
+chatGet :: AppConstraints e r m => Session -> Maybe GameId -> Maybe Posix -> m [ChatLine]
+chatGet _ gIdMay p = selectChatLines p gIdMay
+
+joinableGames :: AppConstraints e r m => Session -> m [JoinableGame]
+joinableGames _ = listJoinableGames
+
+chatAppend :: AppConstraints e r m => Session -> Maybe GameId -> Text -> m ()
+chatAppend s gIdMay t = insertChatLine (NewChatLine gIdMay (username s) t)
+
+gameGet :: AppConstraints e r m => Session -> GameId -> m DbGameState
+gameGet _ gId = selectGameState gId
+
+gameNew :: AppConstraints e r m => Session -> m GameId
+gameNew s = insertGameState (NewDbGameState (newGame (PlayerId (username s))))
 
 userPost :: AppConstraints e r m => DbUser -> m String
 userPost dbUser = do

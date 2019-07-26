@@ -9,6 +9,7 @@ import Html.Events as HE
 import Http
 import Json.Decode as Json
 import Page
+import Page.Game
 import Page.Lobby
 import Page.Login
 import Page.Register
@@ -36,18 +37,19 @@ main =
         }
 
 
-type Page login register lobby
+type Page login register lobby game
     = Login login
     | Register register
     | Lobby lobby
+    | Game game
 
 
 type alias PageMsg =
-    Page Page.Login.Msg Page.Register.Msg Page.Lobby.Msg
+    Page Page.Login.Msg Page.Register.Msg Page.Lobby.Msg Page.Game.Msg
 
 
 type alias PageModel =
-    Page Page.Login.Model Page.Register.Model Page.Lobby.Model
+    Page Page.Login.Model Page.Register.Model Page.Lobby.Model Page.Game.Model
 
 
 type Msg
@@ -98,8 +100,8 @@ initPage key user url =
         Just Route.Lobby ->
             requireUser (\u -> wrapInit Lobby Lobby (Page.Lobby.init key u))
 
-        Just (Route.Game _) ->
-            ( { key = key, user = Nothing, page = Nothing }, Cmd.none )
+        Just (Route.Game gId) ->
+            requireUser (\u -> wrapInit Game Game (Page.Game.init key u gId))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -130,6 +132,9 @@ update action model =
 
                 ( Lobby subMsg, Just (Lobby subModel) ) ->
                     requireUser (\u -> Page.Lobby.update model.key u subMsg subModel |> updateWith Lobby Lobby model)
+
+                ( Game subMsg, Just (Game subModel) ) ->
+                    requireUser (\u -> Page.Game.update model.key u subMsg subModel |> updateWith Game Game model)
 
                 ( _, _ ) ->
                     ( model, Cmd.none )
@@ -164,12 +169,22 @@ subscriptions model =
         Just (Lobby sm) ->
             requireUser (\u -> Sub.map (liftSubMsg Lobby) (Page.Lobby.subscriptions u sm))
 
+        Just (Game sm) ->
+            requireUser (\u -> Sub.map (liftSubMsg Game) (Page.Game.subscriptions u sm))
+
 
 view : Model -> Browser.Document Msg
 view model =
+    let
+        blankDoc =
+            { title = "Dissidence: Compositional Crusaders", body = [] }
+
+        requireUser f =
+            Utils.maybe blankDoc f model.user
+    in
     case model.page of
         Nothing ->
-            { title = "Dissidence: Compositional Crusaders", body = [] }
+            blankDoc
 
         Just (Login sm) ->
             mapDocument (wrapPageMsg Login) (Page.Login.view model.user sm)
@@ -179,6 +194,9 @@ view model =
 
         Just (Lobby sm) ->
             mapDocument (wrapPageMsg Lobby) (Page.Lobby.view sm)
+
+        Just (Game sm) ->
+            requireUser (\u -> mapDocument (wrapPageMsg Game) (Page.Game.view u sm))
 
 
 mapDocument : (subMsg -> Msg) -> Browser.Document subMsg -> Browser.Document Msg
