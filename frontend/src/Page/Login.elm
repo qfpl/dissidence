@@ -8,7 +8,7 @@ import Html.Attributes as HA
 import Html.Events as HE
 import Http
 import Page
-import Ports exposing (putUserSession)
+import Ports exposing (putPlayerSession)
 import RemoteData exposing (RemoteData)
 import Route
 import Session
@@ -16,16 +16,16 @@ import Utils exposing (disabledIfLoading, maybe, maybeToList, remoteDataError)
 
 
 type Msg
-    = SetUsername String
+    = SetPlayerId String
     | SetPassword String
     | Submit
     | HandleResp (Result Http.Error BE.Token)
 
 
 type alias Model =
-    { username : String
+    { playerId : String
     , password : String
-    , submission : RemoteData String Session.User
+    , submission : RemoteData String Session.Player
     }
 
 
@@ -33,26 +33,26 @@ type alias PageMsg =
     Page.SubMsg Msg
 
 
-init : Nav.Key -> Maybe Session.User -> ( Model, Cmd PageMsg )
-init key user =
-    ( { username = ""
+init : Nav.Key -> Maybe Session.Player -> ( Model, Cmd PageMsg )
+init key player =
+    ( { playerId = ""
       , password = ""
       , submission = RemoteData.NotAsked
       }
-    , Utils.maybe Cmd.none (always (Route.pushRoute key Route.Lobby)) user
+    , Utils.maybe Cmd.none (always (Route.pushRoute key Route.Lobby)) player
     )
 
 
-subscriptions : Maybe Session.User -> Model -> Sub PageMsg
+subscriptions : Maybe Session.Player -> Model -> Sub PageMsg
 subscriptions _ _ =
-    Ports.onUserSessionChange (Page.wrapParentMsg (Page.SetUser Route.Lobby))
+    Ports.onPlayerSessionChange (Page.wrapParentMsg (Page.SetPlayer Route.Lobby))
 
 
-update : Nav.Key -> Maybe Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
-update key user msg model =
+update : Nav.Key -> Maybe Session.Player -> Msg -> Model -> ( Model, Cmd PageMsg )
+update key player msg model =
     case msg of
-        SetUsername u ->
-            ( { model | username = u }, Cmd.none )
+        SetPlayerId pId ->
+            ( { model | playerId = pId }, Cmd.none )
 
         SetPassword p ->
             ( { model | password = p }, Cmd.none )
@@ -60,7 +60,7 @@ update key user msg model =
         Submit ->
             ( { model | submission = RemoteData.Loading }
             , BE.postApiLogin
-                { dbUsername = model.username, dbUserPassword = model.password }
+                { dbPlayerId = model.playerId, dbPlayerPassword = model.password }
                 (Page.wrapChildMsg HandleResp)
             )
 
@@ -69,27 +69,32 @@ update key user msg model =
                 remoteData =
                     RemoteData.fromResult r
                         |> RemoteData.mapError Utils.httpErrorToStr
-                        |> RemoteData.map (\t -> { username = model.username, token = t })
+                        |> RemoteData.map (\t -> { playerId = model.playerId, token = t })
             in
             ( { model | submission = remoteData }
             , RemoteData.unwrap
                 Cmd.none
-                (\us -> Cmd.batch [ putUserSession (Just us) ])
+                (\us -> Cmd.batch [ putPlayerSession (Just us) ])
                 remoteData
             )
 
 
-view : Maybe Session.User -> Model -> Browser.Document Msg
-view user model =
+view : Maybe Session.Player -> Model -> Browser.Document Msg
+view player model =
     { title = "Dissidence - Login"
     , body =
         [ H.div [ HA.class "login-box" ]
             [ H.h1 [] [ H.text "Login" ]
+            , H.p [ HA.class "login-alternative" ]
+                [ H.text "Don't have a player id? "
+                , Route.routeLink Route.Register [ H.text "Register" ]
+                , H.text " instead!"
+                ]
             , H.form [ HE.onSubmit Submit ]
                 [ H.input
-                    [ HA.placeholder "Username"
-                    , HE.onInput SetUsername
-                    , HA.value model.username
+                    [ HA.placeholder "Player Id"
+                    , HE.onInput SetPlayerId
+                    , HA.value model.playerId
                     ]
                     []
                 , H.input

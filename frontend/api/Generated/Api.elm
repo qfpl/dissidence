@@ -28,6 +28,12 @@ jsonDecPosix = Json.Decode.map Time.millisToPosix Json.Decode.int
 jsonEncPosix : Posix -> Value
 jsonEncPosix = posixToMillis >> Json.Encode.int
 
+type alias PlayersMap a = Dict PlayerId a
+jsonDecPlayersMap : Json.Decode.Decoder a -> Json.Decode.Decoder (PlayersMap a)
+jsonDecPlayersMap = Json.Decode.dict
+jsonEncPlayersMap : (a -> Value) -> PlayersMap a -> Value
+jsonEncPlayersMap aEnc = Dict.map (always aEnc) >> Dict.toList >> Json.Encode.object
+
 type alias GameId  = Int
 
 jsonDecGameId : Json.Decode.Decoder ( GameId )
@@ -73,16 +79,16 @@ jsonEncToken  val = Json.Encode.string val
 type alias ChatLine  =
    { chatLineTime: Posix
    , chatLineGameId: (Maybe GameId)
-   , chatLineUsername: String
+   , chatLinePlayerId: PlayerId
    , chatLineText: String
    }
 
 jsonDecChatLine : Json.Decode.Decoder ( ChatLine )
 jsonDecChatLine =
-   Json.Decode.succeed (\pchatLineTime pchatLineGameId pchatLineUsername pchatLineText -> {chatLineTime = pchatLineTime, chatLineGameId = pchatLineGameId, chatLineUsername = pchatLineUsername, chatLineText = pchatLineText})
+   Json.Decode.succeed (\pchatLineTime pchatLineGameId pchatLinePlayerId pchatLineText -> {chatLineTime = pchatLineTime, chatLineGameId = pchatLineGameId, chatLinePlayerId = pchatLinePlayerId, chatLineText = pchatLineText})
    |> required "chatLineTime" (jsonDecPosix)
    |> fnullable "chatLineGameId" (jsonDecGameId)
-   |> required "chatLineUsername" (Json.Decode.string)
+   |> required "chatLinePlayerId" (jsonDecPlayerId)
    |> required "chatLineText" (Json.Decode.string)
 
 jsonEncChatLine : ChatLine -> Value
@@ -90,7 +96,7 @@ jsonEncChatLine  val =
    Json.Encode.object
    [ ("chatLineTime", jsonEncPosix val.chatLineTime)
    , ("chatLineGameId", (maybeEncode (jsonEncGameId)) val.chatLineGameId)
-   , ("chatLineUsername", Json.Encode.string val.chatLineUsername)
+   , ("chatLinePlayerId", jsonEncPlayerId val.chatLinePlayerId)
    , ("chatLineText", Json.Encode.string val.chatLineText)
    ]
 
@@ -98,22 +104,22 @@ jsonEncChatLine  val =
 
 type alias NewChatLine  =
    { newChatGameId: (Maybe GameId)
-   , newChatLineUsername: String
+   , newChatLinePlayerId: PlayerId
    , newChatLineText: String
    }
 
 jsonDecNewChatLine : Json.Decode.Decoder ( NewChatLine )
 jsonDecNewChatLine =
-   Json.Decode.succeed (\pnewChatGameId pnewChatLineUsername pnewChatLineText -> {newChatGameId = pnewChatGameId, newChatLineUsername = pnewChatLineUsername, newChatLineText = pnewChatLineText})
+   Json.Decode.succeed (\pnewChatGameId pnewChatLinePlayerId pnewChatLineText -> {newChatGameId = pnewChatGameId, newChatLinePlayerId = pnewChatLinePlayerId, newChatLineText = pnewChatLineText})
    |> fnullable "newChatGameId" (jsonDecGameId)
-   |> required "newChatLineUsername" (Json.Decode.string)
+   |> required "newChatLinePlayerId" (jsonDecPlayerId)
    |> required "newChatLineText" (Json.Decode.string)
 
 jsonEncNewChatLine : NewChatLine -> Value
 jsonEncNewChatLine  val =
    Json.Encode.object
    [ ("newChatGameId", (maybeEncode (jsonEncGameId)) val.newChatGameId)
-   , ("newChatLineUsername", Json.Encode.string val.newChatLineUsername)
+   , ("newChatLinePlayerId", jsonEncPlayerId val.newChatLinePlayerId)
    , ("newChatLineText", Json.Encode.string val.newChatLineText)
    ]
 
@@ -259,15 +265,15 @@ jsonEncRoundShape  val =
 
 type ProposalState  =
     NoProposal 
-    | Proposed (List PlayerId) (List (PlayerId, Bool))
-    | Approved (List PlayerId) (List (PlayerId, Bool))
+    | Proposed (List PlayerId) (PlayersMap Bool)
+    | Approved (List PlayerId) (PlayersMap Bool)
 
 jsonDecProposalState : Json.Decode.Decoder ( ProposalState )
 jsonDecProposalState =
     let jsonDecDictProposalState = Dict.fromList
             [ ("NoProposal", Json.Decode.lazy (\_ -> Json.Decode.succeed NoProposal))
-            , ("Proposed", Json.Decode.lazy (\_ -> Json.Decode.map2 Proposed (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.bool)))))))
-            , ("Approved", Json.Decode.lazy (\_ -> Json.Decode.map2 Approved (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.bool)))))))
+            , ("Proposed", Json.Decode.lazy (\_ -> Json.Decode.map2 Proposed (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (jsonDecPlayersMap (Json.Decode.bool)))))
+            , ("Approved", Json.Decode.lazy (\_ -> Json.Decode.map2 Approved (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (jsonDecPlayersMap (Json.Decode.bool)))))
             ]
         jsonDecObjectSetProposalState = Set.fromList []
     in  decodeSumTaggedObject "ProposalState" "tag" "contents" jsonDecDictProposalState jsonDecObjectSetProposalState
@@ -276,8 +282,8 @@ jsonEncProposalState : ProposalState -> Value
 jsonEncProposalState  val =
     let keyval v = case v of
                     NoProposal  -> ("NoProposal", encodeValue (Json.Encode.list identity []))
-                    Proposed v1 v2 -> ("Proposed", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(Json.Encode.bool) t2])) v2]))
-                    Approved v1 v2 -> ("Approved", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(Json.Encode.bool) t2])) v2]))
+                    Proposed v1 v2 -> ("Proposed", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (jsonEncPlayersMap (Json.Encode.bool)) v2]))
+                    Approved v1 v2 -> ("Approved", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (jsonEncPlayersMap (Json.Encode.bool)) v2]))
     in encodeSumTaggedObject "tag" "contents" keyval val
 
 
@@ -285,7 +291,7 @@ jsonEncProposalState  val =
 type alias TeamVotingResult  =
    { votingTeamLeader: PlayerId
    , votingResultTeam: (List PlayerId)
-   , votingResult: (List (PlayerId, Bool))
+   , votingResult: (PlayersMap Bool)
    }
 
 jsonDecTeamVotingResult : Json.Decode.Decoder ( TeamVotingResult )
@@ -293,14 +299,14 @@ jsonDecTeamVotingResult =
    Json.Decode.succeed (\pvotingTeamLeader pvotingResultTeam pvotingResult -> {votingTeamLeader = pvotingTeamLeader, votingResultTeam = pvotingResultTeam, votingResult = pvotingResult})
    |> required "votingTeamLeader" (jsonDecPlayerId)
    |> required "votingResultTeam" (Json.Decode.list (jsonDecPlayerId))
-   |> required "votingResult" (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.bool))))
+   |> required "votingResult" (jsonDecPlayersMap (Json.Decode.bool))
 
 jsonEncTeamVotingResult : TeamVotingResult -> Value
 jsonEncTeamVotingResult  val =
    Json.Encode.object
    [ ("votingTeamLeader", jsonEncPlayerId val.votingTeamLeader)
    , ("votingResultTeam", (Json.Encode.list jsonEncPlayerId) val.votingResultTeam)
-   , ("votingResult", (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(Json.Encode.bool) t2])) val.votingResult)
+   , ("votingResult", (jsonEncPlayersMap (Json.Encode.bool)) val.votingResult)
    ]
 
 
@@ -353,6 +359,107 @@ jsonEncCurrentRoundState  val =
 
 
 
+type GameStateInputEvent  =
+    AddPlayer 
+    | RemovePlayer 
+    | StartGame 
+    | ConfirmOk 
+    | ProposeTeam (List PlayerId)
+    | VoteOnTeam Bool
+    | VoteOnProject Bool
+    | FirePlayer PlayerId
+    | AbortGame 
+
+jsonDecGameStateInputEvent : Json.Decode.Decoder ( GameStateInputEvent )
+jsonDecGameStateInputEvent =
+    let jsonDecDictGameStateInputEvent = Dict.fromList
+            [ ("AddPlayer", Json.Decode.lazy (\_ -> Json.Decode.succeed AddPlayer))
+            , ("RemovePlayer", Json.Decode.lazy (\_ -> Json.Decode.succeed RemovePlayer))
+            , ("StartGame", Json.Decode.lazy (\_ -> Json.Decode.succeed StartGame))
+            , ("ConfirmOk", Json.Decode.lazy (\_ -> Json.Decode.succeed ConfirmOk))
+            , ("ProposeTeam", Json.Decode.lazy (\_ -> Json.Decode.map ProposeTeam (Json.Decode.list (jsonDecPlayerId))))
+            , ("VoteOnTeam", Json.Decode.lazy (\_ -> Json.Decode.map VoteOnTeam (Json.Decode.bool)))
+            , ("VoteOnProject", Json.Decode.lazy (\_ -> Json.Decode.map VoteOnProject (Json.Decode.bool)))
+            , ("FirePlayer", Json.Decode.lazy (\_ -> Json.Decode.map FirePlayer (jsonDecPlayerId)))
+            , ("AbortGame", Json.Decode.lazy (\_ -> Json.Decode.succeed AbortGame))
+            ]
+        jsonDecObjectSetGameStateInputEvent = Set.fromList []
+    in  decodeSumTaggedObject "GameStateInputEvent" "tag" "contents" jsonDecDictGameStateInputEvent jsonDecObjectSetGameStateInputEvent
+
+jsonEncGameStateInputEvent : GameStateInputEvent -> Value
+jsonEncGameStateInputEvent  val =
+    let keyval v = case v of
+                    AddPlayer  -> ("AddPlayer", encodeValue (Json.Encode.list identity []))
+                    RemovePlayer  -> ("RemovePlayer", encodeValue (Json.Encode.list identity []))
+                    StartGame  -> ("StartGame", encodeValue (Json.Encode.list identity []))
+                    ConfirmOk  -> ("ConfirmOk", encodeValue (Json.Encode.list identity []))
+                    ProposeTeam v1 -> ("ProposeTeam", encodeValue ((Json.Encode.list jsonEncPlayerId) v1))
+                    VoteOnTeam v1 -> ("VoteOnTeam", encodeValue (Json.Encode.bool v1))
+                    VoteOnProject v1 -> ("VoteOnProject", encodeValue (Json.Encode.bool v1))
+                    FirePlayer v1 -> ("FirePlayer", encodeValue (jsonEncPlayerId v1))
+                    AbortGame  -> ("AbortGame", encodeValue (Json.Encode.list identity []))
+    in encodeSumTaggedObject "tag" "contents" keyval val
+
+
+
+type GameStateOutputEvent  =
+    PlayerAdded PlayerId
+    | PlayerRemoved PlayerId
+    | PregameStarted (PlayersMap Role)
+    | PlayerConfirmed 
+    | RoundsCommenced RoundsState
+    | TeamProposed (List PlayerId)
+    | TeamApproved Int
+    | TeamRejected Int PlayerId
+    | NextRound Bool Int
+    | ThreeSuccessfulProjects 
+    | PlayerFired PlayerId
+    | GameEnded (PlayersMap Role) EndCondition
+    | GameAborted PlayerId
+    | GameCrashed 
+
+jsonDecGameStateOutputEvent : Json.Decode.Decoder ( GameStateOutputEvent )
+jsonDecGameStateOutputEvent =
+    let jsonDecDictGameStateOutputEvent = Dict.fromList
+            [ ("PlayerAdded", Json.Decode.lazy (\_ -> Json.Decode.map PlayerAdded (jsonDecPlayerId)))
+            , ("PlayerRemoved", Json.Decode.lazy (\_ -> Json.Decode.map PlayerRemoved (jsonDecPlayerId)))
+            , ("PregameStarted", Json.Decode.lazy (\_ -> Json.Decode.map PregameStarted (jsonDecPlayersMap (jsonDecRole))))
+            , ("PlayerConfirmed", Json.Decode.lazy (\_ -> Json.Decode.succeed PlayerConfirmed))
+            , ("RoundsCommenced", Json.Decode.lazy (\_ -> Json.Decode.map RoundsCommenced (jsonDecRoundsState)))
+            , ("TeamProposed", Json.Decode.lazy (\_ -> Json.Decode.map TeamProposed (Json.Decode.list (jsonDecPlayerId))))
+            , ("TeamApproved", Json.Decode.lazy (\_ -> Json.Decode.map TeamApproved (Json.Decode.int)))
+            , ("TeamRejected", Json.Decode.lazy (\_ -> Json.Decode.map2 TeamRejected (Json.Decode.index 0 (Json.Decode.int)) (Json.Decode.index 1 (jsonDecPlayerId))))
+            , ("NextRound", Json.Decode.lazy (\_ -> Json.Decode.map2 NextRound (Json.Decode.index 0 (Json.Decode.bool)) (Json.Decode.index 1 (Json.Decode.int))))
+            , ("ThreeSuccessfulProjects", Json.Decode.lazy (\_ -> Json.Decode.succeed ThreeSuccessfulProjects))
+            , ("PlayerFired", Json.Decode.lazy (\_ -> Json.Decode.map PlayerFired (jsonDecPlayerId)))
+            , ("GameEnded", Json.Decode.lazy (\_ -> Json.Decode.map2 GameEnded (Json.Decode.index 0 (jsonDecPlayersMap (jsonDecRole))) (Json.Decode.index 1 (jsonDecEndCondition))))
+            , ("GameAborted", Json.Decode.lazy (\_ -> Json.Decode.map GameAborted (jsonDecPlayerId)))
+            , ("GameCrashed", Json.Decode.lazy (\_ -> Json.Decode.succeed GameCrashed))
+            ]
+        jsonDecObjectSetGameStateOutputEvent = Set.fromList []
+    in  decodeSumTaggedObject "GameStateOutputEvent" "tag" "contents" jsonDecDictGameStateOutputEvent jsonDecObjectSetGameStateOutputEvent
+
+jsonEncGameStateOutputEvent : GameStateOutputEvent -> Value
+jsonEncGameStateOutputEvent  val =
+    let keyval v = case v of
+                    PlayerAdded v1 -> ("PlayerAdded", encodeValue (jsonEncPlayerId v1))
+                    PlayerRemoved v1 -> ("PlayerRemoved", encodeValue (jsonEncPlayerId v1))
+                    PregameStarted v1 -> ("PregameStarted", encodeValue ((jsonEncPlayersMap (jsonEncRole)) v1))
+                    PlayerConfirmed  -> ("PlayerConfirmed", encodeValue (Json.Encode.list identity []))
+                    RoundsCommenced v1 -> ("RoundsCommenced", encodeValue (jsonEncRoundsState v1))
+                    TeamProposed v1 -> ("TeamProposed", encodeValue ((Json.Encode.list jsonEncPlayerId) v1))
+                    TeamApproved v1 -> ("TeamApproved", encodeValue (Json.Encode.int v1))
+                    TeamRejected v1 v2 -> ("TeamRejected", encodeValue (Json.Encode.list identity [Json.Encode.int v1, jsonEncPlayerId v2]))
+                    NextRound v1 v2 -> ("NextRound", encodeValue (Json.Encode.list identity [Json.Encode.bool v1, Json.Encode.int v2]))
+                    ThreeSuccessfulProjects  -> ("ThreeSuccessfulProjects", encodeValue (Json.Encode.list identity []))
+                    PlayerFired v1 -> ("PlayerFired", encodeValue (jsonEncPlayerId v1))
+                    GameEnded v1 v2 -> ("GameEnded", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, jsonEncEndCondition v2]))
+                    GameAborted v1 -> ("GameAborted", encodeValue (jsonEncPlayerId v1))
+                    GameCrashed  -> ("GameCrashed", encodeValue (Json.Encode.list identity []))
+    in encodeSumTaggedObject "tag" "contents" keyval val
+
+
+
 type alias HistoricRoundState  =
    { historicRoundShape: RoundShape
    , historicRoundTeam: (Maybe (List PlayerId))
@@ -380,7 +487,7 @@ jsonEncHistoricRoundState  val =
 
 
 type alias RoundsState  =
-   { roundsRoles: (List (PlayerId, Role))
+   { roundsRoles: (PlayersMap Role)
    , roundsLeadershipQueue: LeadershipQueue
    , roundsCurrent: CurrentRoundState
    , roundsFuture: (List RoundShape)
@@ -390,7 +497,7 @@ type alias RoundsState  =
 jsonDecRoundsState : Json.Decode.Decoder ( RoundsState )
 jsonDecRoundsState =
    Json.Decode.succeed (\proundsRoles proundsLeadershipQueue proundsCurrent proundsFuture proundsHistoric -> {roundsRoles = proundsRoles, roundsLeadershipQueue = proundsLeadershipQueue, roundsCurrent = proundsCurrent, roundsFuture = proundsFuture, roundsHistoric = proundsHistoric})
-   |> required "roundsRoles" (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (jsonDecRole))))
+   |> required "roundsRoles" (jsonDecPlayersMap (jsonDecRole))
    |> required "roundsLeadershipQueue" (jsonDecLeadershipQueue)
    |> required "roundsCurrent" (jsonDecCurrentRoundState)
    |> required "roundsFuture" (Json.Decode.list (jsonDecRoundShape))
@@ -399,7 +506,7 @@ jsonDecRoundsState =
 jsonEncRoundsState : RoundsState -> Value
 jsonEncRoundsState  val =
    Json.Encode.object
-   [ ("roundsRoles", (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(jsonEncRole) t2])) val.roundsRoles)
+   [ ("roundsRoles", (jsonEncPlayersMap (jsonEncRole)) val.roundsRoles)
    , ("roundsLeadershipQueue", jsonEncLeadershipQueue val.roundsLeadershipQueue)
    , ("roundsCurrent", jsonEncCurrentRoundState val.roundsCurrent)
    , ("roundsFuture", (Json.Encode.list jsonEncRoundShape) val.roundsFuture)
@@ -410,20 +517,20 @@ jsonEncRoundsState  val =
 
 type GameState  =
     WaitingForPlayers PlayerId (List PlayerId)
-    | Pregame (List (PlayerId, Role)) (List (PlayerId, Bool))
+    | Pregame (PlayersMap Role) (PlayersMap Bool)
     | Rounds RoundsState
-    | FiringRound (List (PlayerId, Role)) (List HistoricRoundState)
-    | Complete (List (PlayerId, Role)) EndCondition (List HistoricRoundState)
+    | FiringRound (PlayersMap Role) (List HistoricRoundState)
+    | Complete (PlayersMap Role) EndCondition (List HistoricRoundState)
     | Aborted PlayerId
 
 jsonDecGameState : Json.Decode.Decoder ( GameState )
 jsonDecGameState =
     let jsonDecDictGameState = Dict.fromList
             [ ("WaitingForPlayers", Json.Decode.lazy (\_ -> Json.Decode.map2 WaitingForPlayers (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.list (jsonDecPlayerId)))))
-            , ("Pregame", Json.Decode.lazy (\_ -> Json.Decode.map2 Pregame (Json.Decode.index 0 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (jsonDecRole))))) (Json.Decode.index 1 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (Json.Decode.bool)))))))
+            , ("Pregame", Json.Decode.lazy (\_ -> Json.Decode.map2 Pregame (Json.Decode.index 0 (jsonDecPlayersMap (jsonDecRole))) (Json.Decode.index 1 (jsonDecPlayersMap (Json.Decode.bool)))))
             , ("Rounds", Json.Decode.lazy (\_ -> Json.Decode.map Rounds (jsonDecRoundsState)))
-            , ("FiringRound", Json.Decode.lazy (\_ -> Json.Decode.map2 FiringRound (Json.Decode.index 0 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (jsonDecRole))))) (Json.Decode.index 1 (Json.Decode.list (jsonDecHistoricRoundState)))))
-            , ("Complete", Json.Decode.lazy (\_ -> Json.Decode.map3 Complete (Json.Decode.index 0 (Json.Decode.list (Json.Decode.map2 tuple2 (Json.Decode.index 0 (jsonDecPlayerId)) (Json.Decode.index 1 (jsonDecRole))))) (Json.Decode.index 1 (jsonDecEndCondition)) (Json.Decode.index 2 (Json.Decode.list (jsonDecHistoricRoundState)))))
+            , ("FiringRound", Json.Decode.lazy (\_ -> Json.Decode.map2 FiringRound (Json.Decode.index 0 (jsonDecPlayersMap (jsonDecRole))) (Json.Decode.index 1 (Json.Decode.list (jsonDecHistoricRoundState)))))
+            , ("Complete", Json.Decode.lazy (\_ -> Json.Decode.map3 Complete (Json.Decode.index 0 (jsonDecPlayersMap (jsonDecRole))) (Json.Decode.index 1 (jsonDecEndCondition)) (Json.Decode.index 2 (Json.Decode.list (jsonDecHistoricRoundState)))))
             , ("Aborted", Json.Decode.lazy (\_ -> Json.Decode.map Aborted (jsonDecPlayerId)))
             ]
         jsonDecObjectSetGameState = Set.fromList []
@@ -433,31 +540,98 @@ jsonEncGameState : GameState -> Value
 jsonEncGameState  val =
     let keyval v = case v of
                     WaitingForPlayers v1 v2 -> ("WaitingForPlayers", encodeValue (Json.Encode.list identity [jsonEncPlayerId v1, (Json.Encode.list jsonEncPlayerId) v2]))
-                    Pregame v1 v2 -> ("Pregame", encodeValue (Json.Encode.list identity [(Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(jsonEncRole) t2])) v1, (Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(Json.Encode.bool) t2])) v2]))
+                    Pregame v1 v2 -> ("Pregame", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, (jsonEncPlayersMap (Json.Encode.bool)) v2]))
                     Rounds v1 -> ("Rounds", encodeValue (jsonEncRoundsState v1))
-                    FiringRound v1 v2 -> ("FiringRound", encodeValue (Json.Encode.list identity [(Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(jsonEncRole) t2])) v1, (Json.Encode.list jsonEncHistoricRoundState) v2]))
-                    Complete v1 v2 v3 -> ("Complete", encodeValue (Json.Encode.list identity [(Json.Encode.list (\(t1,t2) -> Json.Encode.list identity [(jsonEncPlayerId) t1,(jsonEncRole) t2])) v1, jsonEncEndCondition v2, (Json.Encode.list jsonEncHistoricRoundState) v3]))
+                    FiringRound v1 v2 -> ("FiringRound", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, (Json.Encode.list jsonEncHistoricRoundState) v2]))
+                    Complete v1 v2 v3 -> ("Complete", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, jsonEncEndCondition v2, (Json.Encode.list jsonEncHistoricRoundState) v3]))
                     Aborted v1 -> ("Aborted", encodeValue (jsonEncPlayerId v1))
     in encodeSumTaggedObject "tag" "contents" keyval val
 
 
 
-type alias DbUser  =
-   { dbUsername: String
-   , dbUserPassword: String
+type GameEventData  =
+    GameEventChat ChatLine
+    | GameEventOutput GameStateOutputEvent
+
+jsonDecGameEventData : Json.Decode.Decoder ( GameEventData )
+jsonDecGameEventData =
+    let jsonDecDictGameEventData = Dict.fromList
+            [ ("GameEventChat", Json.Decode.lazy (\_ -> Json.Decode.map GameEventChat (jsonDecChatLine)))
+            , ("GameEventOutput", Json.Decode.lazy (\_ -> Json.Decode.map GameEventOutput (jsonDecGameStateOutputEvent)))
+            ]
+        jsonDecObjectSetGameEventData = Set.fromList []
+    in  decodeSumTaggedObject "GameEventData" "tag" "contents" jsonDecDictGameEventData jsonDecObjectSetGameEventData
+
+jsonEncGameEventData : GameEventData -> Value
+jsonEncGameEventData  val =
+    let keyval v = case v of
+                    GameEventChat v1 -> ("GameEventChat", encodeValue (jsonEncChatLine v1))
+                    GameEventOutput v1 -> ("GameEventOutput", encodeValue (jsonEncGameStateOutputEvent v1))
+    in encodeSumTaggedObject "tag" "contents" keyval val
+
+
+
+type NewGameEvent  =
+    NewGameEventChat String
+    | NewGameEventInput GameStateInputEvent
+
+jsonDecNewGameEvent : Json.Decode.Decoder ( NewGameEvent )
+jsonDecNewGameEvent =
+    let jsonDecDictNewGameEvent = Dict.fromList
+            [ ("NewGameEventChat", Json.Decode.lazy (\_ -> Json.Decode.map NewGameEventChat (Json.Decode.string)))
+            , ("NewGameEventInput", Json.Decode.lazy (\_ -> Json.Decode.map NewGameEventInput (jsonDecGameStateInputEvent)))
+            ]
+        jsonDecObjectSetNewGameEvent = Set.fromList []
+    in  decodeSumTaggedObject "NewGameEvent" "tag" "contents" jsonDecDictNewGameEvent jsonDecObjectSetNewGameEvent
+
+jsonEncNewGameEvent : NewGameEvent -> Value
+jsonEncNewGameEvent  val =
+    let keyval v = case v of
+                    NewGameEventChat v1 -> ("NewGameEventChat", encodeValue (Json.Encode.string v1))
+                    NewGameEventInput v1 -> ("NewGameEventInput", encodeValue (jsonEncGameStateInputEvent v1))
+    in encodeSumTaggedObject "tag" "contents" keyval val
+
+
+
+type alias GameEvent  =
+   { gameEventTime: Posix
+   , gameEventPlayer: PlayerId
+   , gameEventData: GameEventData
    }
 
-jsonDecDbUser : Json.Decode.Decoder ( DbUser )
-jsonDecDbUser =
-   Json.Decode.succeed (\pdbUsername pdbUserPassword -> {dbUsername = pdbUsername, dbUserPassword = pdbUserPassword})
-   |> required "dbUsername" (Json.Decode.string)
-   |> required "dbUserPassword" (Json.Decode.string)
+jsonDecGameEvent : Json.Decode.Decoder ( GameEvent )
+jsonDecGameEvent =
+   Json.Decode.succeed (\pgameEventTime pgameEventPlayer pgameEventData -> {gameEventTime = pgameEventTime, gameEventPlayer = pgameEventPlayer, gameEventData = pgameEventData})
+   |> required "gameEventTime" (jsonDecPosix)
+   |> required "gameEventPlayer" (jsonDecPlayerId)
+   |> required "gameEventData" (jsonDecGameEventData)
 
-jsonEncDbUser : DbUser -> Value
-jsonEncDbUser  val =
+jsonEncGameEvent : GameEvent -> Value
+jsonEncGameEvent  val =
    Json.Encode.object
-   [ ("dbUsername", Json.Encode.string val.dbUsername)
-   , ("dbUserPassword", Json.Encode.string val.dbUserPassword)
+   [ ("gameEventTime", jsonEncPosix val.gameEventTime)
+   , ("gameEventPlayer", jsonEncPlayerId val.gameEventPlayer)
+   , ("gameEventData", jsonEncGameEventData val.gameEventData)
+   ]
+
+
+
+type alias DbPlayer  =
+   { dbPlayerId: PlayerId
+   , dbPlayerPassword: String
+   }
+
+jsonDecDbPlayer : Json.Decode.Decoder ( DbPlayer )
+jsonDecDbPlayer =
+   Json.Decode.succeed (\pdbPlayerId pdbPlayerPassword -> {dbPlayerId = pdbPlayerId, dbPlayerPassword = pdbPlayerPassword})
+   |> required "dbPlayerId" (jsonDecPlayerId)
+   |> required "dbPlayerPassword" (Json.Decode.string)
+
+jsonEncDbPlayer : DbPlayer -> Value
+jsonEncDbPlayer  val =
+   Json.Encode.object
+   [ ("dbPlayerId", jsonEncPlayerId val.dbPlayerId)
+   , ("dbPlayerPassword", Json.Encode.string val.dbPlayerPassword)
    ]
 
 
@@ -580,8 +754,8 @@ getApiGamesByGameId header_Authorization capture_gameId toMsg =
                 Nothing
             }
 
-getApiGamesByGameIdChat : Token -> GameId -> (Maybe Int) -> (Result Http.Error  ((List ChatLine))  -> msg) -> Cmd msg
-getApiGamesByGameIdChat header_Authorization capture_gameId query_since toMsg =
+getApiGamesByGameIdEvents : Token -> GameId -> (Maybe Int) -> (Result Http.Error  ((List GameEvent))  -> msg) -> Cmd msg
+getApiGamesByGameIdEvents header_Authorization capture_gameId query_since toMsg =
     let
         params =
             List.filterMap identity
@@ -602,21 +776,21 @@ getApiGamesByGameIdChat header_Authorization capture_gameId query_since toMsg =
                     [ "api"
                     , "games"
                     , capture_gameId |> String.fromInt
-                    , "chat"
+                    , "events"
                     ]
                     params
             , body =
                 Http.emptyBody
             , expect =
-                Http.expectJson toMsg (Json.Decode.list (jsonDecChatLine))
+                Http.expectJson toMsg (Json.Decode.list (jsonDecGameEvent))
             , timeout =
                 Nothing
             , tracker =
                 Nothing
             }
 
-postApiGamesByGameIdChat : Token -> GameId -> String -> (Result Http.Error  (())  -> msg) -> Cmd msg
-postApiGamesByGameIdChat header_Authorization capture_gameId body toMsg =
+postApiGamesByGameIdEvents : Token -> GameId -> NewGameEvent -> (Result Http.Error  (())  -> msg) -> Cmd msg
+postApiGamesByGameIdEvents header_Authorization capture_gameId body toMsg =
     let
         params =
             List.filterMap identity
@@ -635,11 +809,11 @@ postApiGamesByGameIdChat header_Authorization capture_gameId body toMsg =
                     [ "api"
                     , "games"
                     , capture_gameId |> String.fromInt
-                    , "chat"
+                    , "events"
                     ]
                     params
             , body =
-                Http.jsonBody (Json.Encode.string body)
+                Http.jsonBody (jsonEncNewGameEvent body)
             , expect =
                 Http.expectString 
                      (\x -> case x of
@@ -714,8 +888,8 @@ getApiGamesJoinable header_Authorization toMsg =
                 Nothing
             }
 
-postApiUsers : DbUser -> (Result Http.Error  (String)  -> msg) -> Cmd msg
-postApiUsers body toMsg =
+postApiPlayers : DbPlayer -> (Result Http.Error  (String)  -> msg) -> Cmd msg
+postApiPlayers body toMsg =
     let
         params =
             List.filterMap identity
@@ -730,11 +904,11 @@ postApiUsers body toMsg =
             , url =
                 Url.Builder.crossOrigin "http://localhost:8001"
                     [ "api"
-                    , "users"
+                    , "players"
                     ]
                     params
             , body =
-                Http.jsonBody (jsonEncDbUser body)
+                Http.jsonBody (jsonEncDbPlayer body)
             , expect =
                 Http.expectJson toMsg Json.Decode.string
             , timeout =
@@ -743,7 +917,7 @@ postApiUsers body toMsg =
                 Nothing
             }
 
-postApiLogin : DbUser -> (Result Http.Error  (String)  -> msg) -> Cmd msg
+postApiLogin : DbPlayer -> (Result Http.Error  (String)  -> msg) -> Cmd msg
 postApiLogin body toMsg =
     let
         params =
@@ -763,7 +937,7 @@ postApiLogin body toMsg =
                     ]
                     params
             , body =
-                Http.jsonBody (jsonEncDbUser body)
+                Http.jsonBody (jsonEncDbPlayer body)
             , expect =
                 Http.expectJson toMsg Json.Decode.string
             , timeout =

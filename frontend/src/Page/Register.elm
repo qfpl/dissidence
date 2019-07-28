@@ -8,7 +8,7 @@ import Html.Attributes as HA
 import Html.Events as HE
 import Http
 import Page
-import Ports exposing (putUserSession)
+import Ports exposing (putPlayerSession)
 import RemoteData exposing (RemoteData)
 import Result
 import Route
@@ -17,7 +17,7 @@ import Utils exposing (disabledIfLoading, maybe, maybeToList, remoteDataError)
 
 
 type Msg
-    = SetUsername String
+    = SetPlayerId String
     | SetPassword String
     | SetPasswordAgain String
     | Submit
@@ -25,23 +25,23 @@ type Msg
 
 
 type alias Model =
-    { username : String
+    { playerId : String
     , password : String
     , passwordAgain : String
     , validationIssues : List String
-    , submission : RemoteData String Session.User
+    , submission : RemoteData String Session.Player
     }
 
 
-init : Nav.Key -> Maybe Session.User -> ( Model, Cmd PageMsg )
-init key user =
-    ( { username = ""
+init : Nav.Key -> Maybe Session.Player -> ( Model, Cmd PageMsg )
+init key player =
+    ( { playerId = ""
       , password = ""
       , passwordAgain = ""
       , validationIssues = []
       , submission = RemoteData.NotAsked
       }
-    , maybe Cmd.none (always (Route.pushRoute key Route.Lobby)) user
+    , maybe Cmd.none (always (Route.pushRoute key Route.Lobby)) player
     )
 
 
@@ -49,16 +49,16 @@ type alias PageMsg =
     Page.SubMsg Msg
 
 
-subscriptions : Maybe Session.User -> Model -> Sub PageMsg
+subscriptions : Maybe Session.Player -> Model -> Sub PageMsg
 subscriptions _ _ =
     Sub.none
 
 
-update : Nav.Key -> Maybe Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
-update key user msg model =
+update : Nav.Key -> Maybe Session.Player -> Msg -> Model -> ( Model, Cmd PageMsg )
+update key player msg model =
     case msg of
-        SetUsername u ->
-            ( { model | username = u }, Cmd.none )
+        SetPlayerId pId ->
+            ( { model | playerId = pId }, Cmd.none )
 
         SetPassword p ->
             ( { model | password = p }, Cmd.none )
@@ -67,10 +67,10 @@ update key user msg model =
             ( { model | passwordAgain = p }, Cmd.none )
 
         Submit ->
-            case validateDbUser model of
-                Ok dbUser ->
+            case validateDbPlayer model of
+                Ok dbPlayer ->
                     ( { model | validationIssues = [], submission = RemoteData.Loading }
-                    , BE.postApiUser dbUser (Page.wrapChildMsg HandleResp)
+                    , BE.postApiPlayers dbPlayer (Page.wrapChildMsg HandleResp)
                     )
 
                 Err problems ->
@@ -87,14 +87,14 @@ update key user msg model =
                     RemoteData.fromResult r
                         |> RemoteData.mapError Utils.httpErrorToStr
                         |> RemoteData.map
-                            (\t -> { username = model.username, token = t })
+                            (\t -> { playerId = model.playerId, token = t })
             in
             ( { model | submission = remoteData }
             , RemoteData.unwrap
                 Cmd.none
                 (\us ->
                     Cmd.batch
-                        [ putUserSession (Just us), Route.pushRoute key Route.Lobby ]
+                        [ putPlayerSession (Just us), Route.pushRoute key Route.Lobby ]
                 )
                 remoteData
             )
@@ -105,15 +105,15 @@ update key user msg model =
 -- Come back to this later.
 
 
-validateDbUser : Model -> Result.Result (List String) BE.DbUser
-validateDbUser model =
+validateDbPlayer : Model -> Result.Result (List String) BE.DbPlayer
+validateDbPlayer model =
     let
-        trimmedUser =
-            String.trim model.username
+        trimmedPlayerId =
+            String.trim model.playerId
 
-        usernameError =
-            if trimmedUser == "" then
-                [ "Username cannot be blank" ]
+        playerIdError =
+            if trimmedPlayerId == "" then
+                [ "PlayerID cannot be blank" ]
 
             else
                 []
@@ -133,10 +133,10 @@ validateDbUser model =
                 []
 
         allErrs =
-            List.concat [ usernameError, passwordError, mismatchError ]
+            List.concat [ playerIdError, passwordError, mismatchError ]
     in
     if allErrs == [] then
-        Result.Ok { dbUsername = trimmedUser, dbUserPassword = model.password }
+        Result.Ok { dbPlayerId = trimmedPlayerId, dbPlayerPassword = model.password }
 
     else
         Result.Err allErrs
@@ -148,11 +148,16 @@ view model =
     , body =
         [ H.div [ HA.class "login-box" ]
             [ H.h1 [] [ H.text "Register" ]
+            , H.p [ HA.class "login-alternative" ]
+                [ H.text "Already have a player id? "
+                , Route.routeLink Route.Login [ H.text "Login" ]
+                , H.text " instead!"
+                ]
             , H.form [ HE.onSubmit Submit ]
                 [ H.input
-                    [ HA.placeholder "Username"
-                    , HE.onInput SetUsername
-                    , HA.value model.username
+                    [ HA.placeholder "Player ID"
+                    , HE.onInput SetPlayerId
+                    , HA.value model.playerId
                     ]
                     []
                 , H.input

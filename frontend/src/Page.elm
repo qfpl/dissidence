@@ -1,11 +1,15 @@
-module Page exposing (ParentMsg(..), SubMsg(..), wrapChildMsg, wrapParentMsg)
+module Page exposing (ParentMsg(..), SubMsg(..), logoutView, wrapChildMsg, wrapParentMsg)
 
+import Html as H
+import Html.Attributes as HA
+import Html.Events as HE
 import Route
 import Session
 
 
 type ParentMsg
-    = SetUser Route.Route (Maybe Session.User)
+    = SetPlayer Route.Route (Maybe Session.Player)
+    | Logout
 
 
 {-| Messages that child pages raise to here.
@@ -23,3 +27,11 @@ wrapParentMsg f =
 wrapChildMsg : (b -> a) -> b -> SubMsg a
 wrapChildMsg f =
     f >> ChildMsg
+
+
+logoutView : Session.Player -> H.Html (SubMsg a)
+logoutView player =
+    H.p [ HA.class "logged-in" ]
+        [ H.text ("Logged in as " ++ player.playerId ++ ".")
+        , H.button [ HA.class "logout", HE.onClick (ParentMsg Logout) ] [ H.text "logout" ]
+        ]

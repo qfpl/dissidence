@@ -1,12 +1,13 @@
-{-# LANGUAGE DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase, MultiParamTypeClasses, OverloadedStrings, TemplateHaskell, TypeApplications   #-}
-{-# LANGUAGE TypeFamilies                                                                              #-}
+{-# LANGUAGE DataKinds, DeriveGeneric, FlexibleContexts, FlexibleInstances, GeneralizedNewtypeDeriving  #-}
+{-# LANGUAGE LambdaCase, MultiParamTypeClasses, OverloadedStrings, ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE TypeApplications, TypeFamilies                                                             #-}
 module Game.Dissidence.GameState.Internal where
 
 import Control.Lens
 
 import           Control.Arrow         ((***))
 import           Data.Aeson            (FromJSON (..), FromJSONKey, ToJSON (..), ToJSONKey)
+import           Data.Aeson.TH         (deriveJSON)
 import           Data.Generics.Product (field)
 import           Data.Generics.Sum     (_As)
 import           Data.List.NonEmpty    (NonEmpty)
@@ -33,6 +34,8 @@ deriveBoth ourAesonOptions ''CrusaderRole
 data SideEffectRole = MiddleManager deriving (Eq, Ord, Show, Generic)
 deriveBoth ourAesonOptions ''SideEffectRole
 
+type PlayersMap a = Map PlayerId a
+
 data Role
    = CompositionalCrusaders (Maybe CrusaderRole)
    | SneakySideEffects (Maybe SideEffectRole)
@@ -58,15 +61,15 @@ deriveBoth ourAesonOptions ''RoundShape
 
 data ProposalState
   = NoProposal
-  | Proposed (Set PlayerId) (Map PlayerId Bool)
-  | Approved (Set PlayerId) (Map PlayerId Bool)
+  | Proposed (Set PlayerId) (PlayersMap Bool)
+  | Approved (Set PlayerId) (PlayersMap Bool)
   deriving (Eq, Show, Generic)
 deriveBoth ourAesonOptions ''ProposalState
 
 data TeamVotingResult = TeamVotingResult
   { votingTeamLeader :: PlayerId
   , votingResultTeam :: Set PlayerId
-  , votingResult     :: Map PlayerId Bool
+  , votingResult     :: PlayersMap Bool
   } deriving (Eq, Show, Generic)
 deriveBoth ourAesonOptions ''TeamVotingResult
 
@@ -102,7 +105,7 @@ instance IsElmDefinition LeadershipQueue where
       (ETyApp (ETyCon (ETCon "List")) (toElmType (Proxy :: Proxy String))))
 
 data RoundsState = RoundsState
-  { roundsRoles           :: Map PlayerId Role
+  { roundsRoles           :: PlayersMap Role
   , roundsLeadershipQueue :: LeadershipQueue
   , roundsCurrent         :: CurrentRoundState
   , roundsFuture          :: [RoundShape]
@@ -122,35 +125,35 @@ roundsCurrentVotes = field @"roundsCurrent" . field @"currentRoundVotes"
 
 data GameState
   = WaitingForPlayers PlayerId (Set PlayerId)
-  | Pregame (Map PlayerId Role) (Map PlayerId Bool)
+  | Pregame (PlayersMap Role) (PlayersMap Bool)
   | Rounds RoundsState
-  | FiringRound (Map PlayerId Role) [HistoricRoundState]
-  | Complete (Map PlayerId Role) EndCondition [HistoricRoundState]
+  | FiringRound (PlayersMap Role) [HistoricRoundState]
+  | Complete (PlayersMap Role) EndCondition [HistoricRoundState]
   | Aborted PlayerId
   deriving (Eq, Show, Generic)
 deriveBoth ourAesonOptions ''GameState
 
-
 -- These are the events given to us by the UI and the ones stored in the database.
 -- We can't just ship these to the UI
 data GameStateInputEvent
-    = AddPlayer PlayerId
-    | RemovePlayer PlayerId
-    | StartGame PlayerId
-    | ConfirmOk PlayerId
-    | ProposeTeam PlayerId (Set PlayerId)
-    | VoteOnTeam PlayerId Bool
-    | VoteOnProject PlayerId Bool
-    | FirePlayer PlayerId PlayerId
-    | AbortGame PlayerId
+    = AddPlayer
+    | RemovePlayer
+    | StartGame
+    | ConfirmOk
+    | ProposeTeam (Set PlayerId)
+    | VoteOnTeam Bool
+    | VoteOnProject Bool
+    | FirePlayer PlayerId
+    | AbortGame
     deriving (Eq, Show, Generic)
 deriveBoth ourAesonOptions ''GameStateInputEvent
 
 -- These are the bits where the game decides some kind of random event
 data GameStateInternalEvent
-  = AssignRoles (Map PlayerId Role)
+  = AssignRoles (PlayersMap Role)
   | ShufflePlayerOrder LeadershipQueue
   deriving (Eq, Show, Generic)
+deriveJSON ourAesonOptions ''GameStateInternalEvent
 
 -- These are the events given back to the UI communicating the change that it needs to update.
 -- Some of these events contain more information than a single player should get and need to be filtered
@@ -158,7 +161,7 @@ data GameStateInternalEvent
 data GameStateOutputEvent
   = PlayerAdded PlayerId
   | PlayerRemoved PlayerId
-  | PregameStarted (Map PlayerId Role)
+  | PregameStarted (PlayersMap Role)
   | PlayerConfirmed  -- Lets not say who because the timing could give away info
   | RoundsCommenced RoundsState
   | TeamProposed (Set PlayerId)
@@ -167,7 +170,7 @@ data GameStateOutputEvent
   | NextRound Bool Natural
   | ThreeSuccessfulProjects
   | PlayerFired PlayerId
-  | GameEnded (Map PlayerId Role) EndCondition
+  | GameEnded (PlayersMap Role) EndCondition
   | GameAborted PlayerId
   | GameCrashed
   deriving (Eq, Show, Generic)
@@ -189,6 +192,7 @@ data GameStateInputError
   | PlayerNotManager
   deriving (Eq, Show, Generic)
 deriveBoth ourAesonOptions ''GameStateInputError
+makeClassyPrisms ''GameStateInputError
 
 cycleLeadershipQueue :: LeadershipQueue -> LeadershipQueue
 cycleLeadershipQueue (LeadershipQueue q) = LeadershipQueue . NEL.fromList $ (NEL.tail q) <> [NEL.head q]
@@ -239,7 +243,7 @@ playersToRoles Players8 = CompositionalCrusaders Nothing : playersToRoles Player
 playersToRoles Players9 = CompositionalCrusaders Nothing : playersToRoles Players8
 playersToRoles Players10 = SneakySideEffects Nothing : playersToRoles Players9
 
-initialRoundsState :: (Map PlayerId Role) -> LeadershipQueue -> PlayersCount -> RoundsState
+initialRoundsState :: (PlayersMap Role) -> LeadershipQueue -> PlayersCount -> RoundsState
 initialRoundsState roles order = \case
   Players5  -> rss 2 3 2 3 3 False
   Players6  -> rss 2 3 4 3 4 False

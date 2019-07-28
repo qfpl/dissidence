@@ -25,9 +25,11 @@ type Msg
     | SetNewLine String
     | Tick Time.Posix
     | SubmitNewLine
+    | StartGame
     | HandleNewLineResp (Result Http.Error ())
-    | HandleListResp (Result Http.Error (List BE.ChatLine))
+    | HandleEventsResp (Result Http.Error (List BE.GameEvent))
     | HandleGetGameResp (Result Http.Error BE.DbGameState)
+    | HandleNewEventResp (Result Http.Error ())
 
 
 type alias Model =
@@ -35,10 +37,10 @@ type alias Model =
     , gameState : RemoteData String BE.DbGameState
     , lastUpdated : Maybe Time.Posix
     , newChatLine : String
-    , chatLines : List BE.ChatLine
-    , chatListError : Maybe String
     , validationIssues : List String
     , newLineSubmission : RemoteData String ()
+    , gameEvents : List BE.GameEvent
+    , eventsListError : Maybe String
     }
 
 
@@ -46,31 +48,31 @@ type alias PageMsg =
     Page.SubMsg Msg
 
 
-init : Nav.Key -> Session.User -> BE.GameId -> ( Model, Cmd PageMsg )
-init key user gId =
+init : Nav.Key -> Session.Player -> BE.GameId -> ( Model, Cmd PageMsg )
+init key player gId =
     ( { gameId = gId
       , gameState = RemoteData.Loading
       , newChatLine = ""
       , lastUpdated = Nothing
-      , chatLines = []
-      , chatListError = Nothing
       , validationIssues = []
       , newLineSubmission = RemoteData.NotAsked
+      , gameEvents = []
+      , eventsListError = Nothing
       }
     , Cmd.batch
-        [ BE.getApiGameByGameId user.token gId (Page.wrapChildMsg HandleGetGameResp)
+        [ BE.getApiGamesByGameId player.token gId (Page.wrapChildMsg HandleGetGameResp)
         , Task.perform (Page.wrapChildMsg Tick) Time.now
         ]
     )
 
 
-subscriptions : Session.User -> Model -> Sub PageMsg
+subscriptions : Session.Player -> Model -> Sub PageMsg
 subscriptions _ _ =
     Time.every 5000 (Page.wrapChildMsg Tick)
 
 
-update : Nav.Key -> Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
-update key user msg model =
+update : Nav.Key -> Session.Player -> Msg -> Model -> ( Model, Cmd PageMsg )
+update key player msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
@@ -79,10 +81,10 @@ update key user msg model =
             ( { model | newChatLine = l }, Cmd.none )
 
         SubmitNewLine ->
-            case validateNewChatLine user model of
+            case validateNewChatLine player model of
                 Ok newChatLine ->
                     ( { model | validationIssues = [], newLineSubmission = RemoteData.Loading }
-                    , BE.postApiGameByGameIdChat user.token model.gameId newChatLine (Page.wrapChildMsg HandleNewLineResp)
+                    , BE.postApiGamesByGameIdEvents player.token model.gameId (BE.NewGameEventChat newChatLine) (Page.wrapChildMsg HandleNewLineResp)
                     )
 
                 Err problems ->
@@ -95,27 +97,14 @@ update key user msg model =
 
         Tick time ->
             ( model
-            , BE.getApiGameByGameIdChat
-                user.token
-                model.gameId
-                (model.chatLines |> List.map (.chatLineTime >> Time.posixToMillis) |> List.maximum)
-                (Page.wrapChildMsg HandleListResp)
-            )
-
-        HandleListResp (Err e) ->
-            ( { model | chatListError = Just (Utils.httpErrorToStr e) }, Cmd.none )
-
-        HandleListResp (Ok l) ->
-            ( { model
-                | chatListError = Nothing
-                , chatLines =
-                    if model.chatLines == [] then
-                        l
-
-                    else
-                        model.chatLines ++ l
-              }
-            , jumpToChatBottom
+            , Cmd.batch
+                [ BE.getApiGamesByGameIdEvents
+                    player.token
+                    model.gameId
+                    (model.gameEvents |> List.map (.gameEventTime >> Time.posixToMillis) |> List.maximum)
+                    (Page.wrapChildMsg HandleEventsResp)
+                , BE.getApiGamesByGameId player.token model.gameId (Page.wrapChildMsg HandleGetGameResp)
+                ]
             )
 
         HandleNewLineResp r ->
@@ -139,6 +128,29 @@ update key user msg model =
             in
             ( { model | gameState = remoteData }, Cmd.none )
 
+        HandleEventsResp (Err e) ->
+            ( { model | eventsListError = Just (Utils.httpErrorToStr e) }, Cmd.none )
+
+        HandleEventsResp (Ok l) ->
+            ( { model
+                | eventsListError = Nothing
+                , gameEvents =
+                    if model.gameEvents == [] then
+                        l
+
+                    else
+                        model.gameEvents ++ l
+              }
+            , jumpToChatBottom
+            )
+
+        HandleNewEventResp _ ->
+            ( model, Cmd.none )
+
+        StartGame ->
+            -- TODO: Some kind of in progress / error display feedback
+            ( model, BE.postApiGamesByGameIdEvents player.token model.gameId (BE.NewGameEventInput BE.StartGame) (Page.wrapChildMsg HandleNewEventResp) )
+
 
 jumpToChatBottom : Cmd PageMsg
 jumpToChatBottom =
@@ -152,8 +164,8 @@ jumpToChatBottom =
 -- Come back to this later.
 
 
-validateNewChatLine : Session.User -> Model -> Result.Result (List String) String
-validateNewChatLine user model =
+validateNewChatLine : Session.Player -> Model -> Result.Result (List String) String
+validateNewChatLine player model =
     let
         trimmedLine =
             String.trim model.newChatLine
@@ -175,20 +187,41 @@ validateNewChatLine user model =
         Result.Err allErrs
 
 
-view : Session.User -> Model -> Browser.Document Msg
-view user model =
+view : Session.Player -> Model -> Browser.Document PageMsg
+view player model =
     { title = "Dissidence - Game"
     , body =
-        [ H.div []
-            [ H.div [ HA.class "chatbox-container" ]
+        [ Page.logoutView player
+        , H.div [ HA.class "game-page" ]
+            [ H.div [ HA.class "game-state" ]
                 [ H.h1 [] [ H.text "Game ", H.text (String.fromInt model.gameId) ]
-                , H.div [ HA.id "chatbox", HA.class "chatbox" ] (List.map chatLineView model.chatLines)
-                , H.form [ HE.onSubmit SubmitNewLine ]
+                , case model.gameState of
+                    RemoteData.NotAsked ->
+                        H.text "NOT ASKED"
+
+                    RemoteData.Loading ->
+                        H.text "LOADING"
+
+                    RemoteData.Failure s ->
+                        H.text ("ERROR: " ++ s)
+
+                    RemoteData.Success gs ->
+                        case gs.dbGameState of
+                            BE.WaitingForPlayers o ps ->
+                                waitingForPlayers player o ps
+
+                            _ ->
+                                H.text "IMPLEMENT ME"
+                ]
+            , H.div [ HA.class "chatbox-container" ]
+                [ H.h2 [] [ H.text "Game Chat" ]
+                , H.div [ HA.id "chatbox", HA.class "chatbox" ] (List.map chatLineView model.gameEvents)
+                , H.form [ HE.onSubmit (Page.ChildMsg SubmitNewLine) ]
                     [ H.ul []
                         [ H.li [ HA.class "chat-message" ]
                             [ H.input
                                 [ HA.placeholder "type a chat message"
-                                , HE.onInput SetNewLine
+                                , HE.onInput (Page.wrapChildMsg SetNewLine)
                                 , HA.value model.newChatLine
                                 , HA.class "chat-message-input"
                                 , HAA.ariaLabel "Enter Chat Message"
@@ -208,54 +241,40 @@ view user model =
                         ]
                     ]
                 ]
-            , H.div []
-                [ case model.gameState of
-                    RemoteData.NotAsked ->
-                        H.text "NOT ASKED"
-
-                    RemoteData.Loading ->
-                        H.text "LOADING"
-
-                    RemoteData.Failure s ->
-                        H.text ("ERROR: " ++ s)
-
-                    RemoteData.Success gs ->
-                        case gs.dbGameState of
-                            BE.WaitingForPlayers o ps ->
-                                waitingForPlayers user o ps
-
-                            _ ->
-                                H.text "IMPLEMENT ME"
-                ]
             ]
         ]
     }
 
 
-waitingForPlayers : Session.User -> BE.PlayerId -> List BE.PlayerId -> H.Html Msg
-waitingForPlayers user owner players =
+waitingForPlayers : Session.Player -> BE.PlayerId -> List BE.PlayerId -> H.Html PageMsg
+waitingForPlayers player owner players =
     H.div [ HA.class "players-waiting" ]
         [ H.h2 [] [ H.text "Players Waiting" ]
         , H.ul []
             (H.li [] [ H.text owner, H.text " (Owner)" ]
                 :: List.map (H.text >> List.singleton >> H.li []) players
             )
-        , if List.length players >= 5 && owner == user.username then
-            H.button [] [ H.text "Start Game" ]
+        , if List.length players >= 4 && owner == player.playerId then
+            H.button [ HE.onClick (Page.ChildMsg StartGame) ] [ H.text "Start Game" ]
 
           else
             H.text ""
         ]
 
 
-chatWarnings : NEL.Nonempty String -> H.Html Msg
+chatWarnings : NEL.Nonempty String -> H.Html PageMsg
 chatWarnings errors =
     H.li [ HA.class "chat-warnings" ] [ H.ul [ HA.class "warn" ] (List.map (\em -> H.li [] [ H.text em ]) (NEL.toList errors)) ]
 
 
-chatLineView : BE.ChatLine -> H.Html Msg
-chatLineView cl =
-    H.p []
-        [ H.b [] [ H.text cl.chatLineUsername, H.text "> " ]
-        , H.text cl.chatLineText
-        ]
+chatLineView : BE.GameEvent -> H.Html PageMsg
+chatLineView ge =
+    case ge.gameEventData of
+        BE.GameEventChat cl ->
+            H.p []
+                [ H.b [] [ H.text cl.chatLinePlayerId, H.text "> " ]
+                , H.text cl.chatLineText
+                ]
+
+        BE.GameEventOutput oe ->
+            H.p [] [ H.text "OUTPUTEVENT" ]

@@ -6,6 +6,7 @@ module Main where
 
 import           Control.Lens
 import qualified Data.Text                    as T
+import           Elm.Module                   as Elm
 import           Elm.TyRep
 import           GHC.TypeLits                 (ErrorMessage (Text), KnownSymbol, Symbol, TypeError, symbolVal)
 import           Servant.Auth
@@ -56,7 +57,9 @@ myElmOpts = defElmOptions
     [ toElmType (Proxy @String)
     , toElmType (Proxy @T.Text)
     , toElmType (Proxy @Token)
+    , toElmType (Proxy @PlayerId)
     ]
+  , elmAlterations = Elm.defaultAlterations
   }
 
 myElmImports :: T.Text
@@ -88,6 +91,12 @@ myElmImports = T.unlines
   , "jsonDecPosix = Json.Decode.map Time.millisToPosix Json.Decode.int"
   , "jsonEncPosix : Posix -> Value"
   , "jsonEncPosix = posixToMillis >> Json.Encode.int"
+  , ""
+  , "type alias PlayersMap a = Dict PlayerId a"
+  , "jsonDecPlayersMap : Json.Decode.Decoder a -> Json.Decode.Decoder (PlayersMap a)"
+  , "jsonDecPlayersMap = Json.Decode.dict"
+  , "jsonEncPlayersMap : (a -> Value) -> PlayersMap a -> Value"
+  , "jsonEncPlayersMap aEnc = Dict.map (always aEnc) >> Dict.toList >> Json.Encode.object"
   ]
 
 main :: IO ()
@@ -116,10 +125,15 @@ main =
     , DefineElm (Proxy :: Proxy TeamVotingResult)
     , DefineElm (Proxy :: Proxy RoundResult)
     , DefineElm (Proxy :: Proxy CurrentRoundState)
+    , DefineElm (Proxy :: Proxy GameStateInputEvent)
+    , DefineElm (Proxy :: Proxy GameStateOutputEvent)
     , DefineElm (Proxy :: Proxy HistoricRoundState)
     , DefineElm (Proxy :: Proxy RoundsState)
     , DefineElm (Proxy :: Proxy GameState)
-    , DefineElm (Proxy :: Proxy DbUser)
+    , DefineElm (Proxy :: Proxy GameEventData)
+    , DefineElm (Proxy :: Proxy NewGameEvent)
+    , DefineElm (Proxy :: Proxy GameEvent)
+    , DefineElm (Proxy :: Proxy DbPlayer)
     , DefineElm (Proxy :: Proxy DbGameState)
     ]
     (Proxy :: Proxy Api)

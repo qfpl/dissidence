@@ -1,4 +1,4 @@
-module Session exposing (User, userDecode, userEncode)
+module Session exposing (Player, playerDecode, playerEncode)
 
 import Browser.Navigation
 import Generated.Api exposing (Token)
@@ -7,17 +7,17 @@ import Json.Decode.Pipeline exposing (custom)
 import Json.Encode as Encode
 
 
-type alias User =
-    { username : String
+type alias Player =
+    { playerId : String
     , token : Token
     }
 
 
-userEncode : User -> Encode.Value
-userEncode u =
-    Encode.object [ ( "username", Encode.string u.username ), ( "token", Encode.string u.token ) ]
+playerEncode : Player -> Encode.Value
+playerEncode p =
+    Encode.object [ ( "playerId", Encode.string p.playerId ), ( "token", Encode.string p.token ) ]
 
 
-userDecode : Decode.Decoder User
-userDecode =
-    Decode.map2 User (Decode.field "username" Decode.string) (Decode.field "token" Decode.string)
+playerDecode : Decode.Decoder Player
+playerDecode =
+    Decode.map2 Player (Decode.field "playerId" Decode.string) (Decode.field "token" Decode.string)

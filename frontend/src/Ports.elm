@@ -1,20 +1,20 @@
-port module Ports exposing (onUserSessionChange, putUserSession)
+port module Ports exposing (onPlayerSessionChange, putPlayerSession)
 
 import Json.Decode exposing (Value)
 import Session
 
 
-port putUserSessionValue : Maybe Value -> Cmd msg
+port putPlayerSessionValue : Maybe Value -> Cmd msg
 
 
-port onUserSessionValueChange : (Value -> msg) -> Sub msg
+port onPlayerSessionValueChange : (Value -> msg) -> Sub msg
 
 
-putUserSession : Maybe Session.User -> Cmd a
-putUserSession u =
-    Maybe.map Session.userEncode u |> putUserSessionValue
+putPlayerSession : Maybe Session.Player -> Cmd a
+putPlayerSession p =
+    Maybe.map Session.playerEncode p |> putPlayerSessionValue
 
 
-onUserSessionChange : (Maybe Session.User -> msg) -> Sub msg
-onUserSessionChange f =
-    onUserSessionValueChange (Json.Decode.decodeValue Session.userDecode >> Result.toMaybe >> f)
+onPlayerSessionChange : (Maybe Session.Player -> msg) -> Sub msg
+onPlayerSessionChange f =
+    onPlayerSessionValueChange (Json.Decode.decodeValue Session.playerDecode >> Result.toMaybe >> f)

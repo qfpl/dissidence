@@ -8,20 +8,20 @@ module Game.Dissidence.Db
   , selectGameState
   , insertGameState
   , updateGameState
+  , insertGameStateEvent
+  , listGameStateEvents
   , listJoinableGames
-  , insertUser
+  , insertPlayer
   , checkLogin
---  , insertUser
---  , upsertGameState
---  , selectUser
- -- , selectGameState
+  , findPlayer
   , runDb
   , ChatLine
   , NewChatLine(..)
   , DbGameState
   , JoinableGame(..)
   , NewDbGameState(..)
-  , DbUser
+  , NewDbGameStateEvent(..)
+  , DbPlayer
   , AsSQLiteResponse(..)
   , AsDbError(..)
   , AsDbLogicError(..)
@@ -62,8 +62,9 @@ import           Servant                            (FromHttpApiData (..))
 import           Servant.Elm                        (deriveBoth)
 
 import Game.Dissidence.AesonOptions       (ourAesonOptions)
-import Game.Dissidence.GameState          (toGameStateType)
-import Game.Dissidence.GameState.Internal (GameState (WaitingForPlayers))
+import Game.Dissidence.GameState          (PlayerId (PlayerId, unPlayerId), toGameStateType)
+import Game.Dissidence.GameState.Internal (GameState (WaitingForPlayers), GameStateInputEvent,
+                                           GameStateInternalEvent, GameStateOutputEvent)
 
 toAesonField :: ToJSON a => a -> SQLData
 toAesonField = toField . encode
@@ -88,21 +89,21 @@ instance FromHttpApiData GameId where
 data ChatLine = ChatLine
   { chatLineTime     :: Posix
   , chatLineGameId   :: Maybe GameId
-  , chatLineUsername :: Text
+  , chatLinePlayerId :: PlayerId
   , chatLineText     :: Text
   } deriving (Show, Generic)
 
 instance FromRow ChatLine where
-  fromRow = ChatLine <$> field <*> field <*> field <*> field
+  fromRow = ChatLine <$> field <*> field <*> (PlayerId <$> field) <*> field
 
 data NewChatLine = NewChatLine
   { newChatGameId       :: Maybe GameId
-  , newChatLineUsername :: Text
+  , newChatLinePlayerId :: PlayerId
   , newChatLineText     :: Text
   } deriving (Show, Generic)
 
 instance ToRow NewChatLine where
-  toRow (NewChatLine gId u t) = [toField gId, toField u, toField t]
+  toRow (NewChatLine gId pId t) = [toField gId, toField (unPlayerId pId), toField t]
 
 data DbGameState = DbGameState
   { dbGameStateId :: GameId
@@ -122,20 +123,44 @@ data JoinableGame = JoinableGame
   , playerCount    :: Int
   }
 
-data DbUser = DbUser
-  { dbUsername     :: Text
-  , dbUserPassword :: Text
+data DbPlayer = DbPlayer
+  { dbPlayerId       :: PlayerId
+  , dbPlayerPassword :: Text
   } deriving (Show, Generic)
 
-instance FromRow DbUser where
-  fromRow = DbUser <$> field <*> field
+instance FromRow DbPlayer where
+  fromRow = DbPlayer <$> (PlayerId <$> field) <*> field
 
-instance ToRow DbUser where
-  toRow (DbUser u p) = [toField u, toField p]
+instance ToRow DbPlayer where
+  toRow (DbPlayer pId p) = [toField (unPlayerId pId), toField p]
+
+data NewDbGameStateEvent = NewDbGameStateEvent
+  { newDbGameStateEventGameId   :: GameId
+  , newDbGameStatePlayerId      :: PlayerId
+  , newDbGameStateEventInput    :: GameStateInputEvent
+  , newDbGameStateEventInternal :: Maybe GameStateInternalEvent
+  , newDbGameStateEventOutput   :: Maybe GameStateOutputEvent
+  } deriving (Show, Generic)
+
+instance ToRow NewDbGameStateEvent where
+  toRow (NewDbGameStateEvent gId playerId input internal output) =
+    [toField gId, toField (unPlayerId playerId), toAesonField input, toAesonField internal, toAesonField output]
+
+data DbGameStateEvent = DbGameStateEvent
+  { dbGameStateEventGameId   :: GameId
+  , dbGameStatePlayerId      :: PlayerId
+  , dbGameStateEventTime     :: Posix
+  , dbGameStateEventInput    :: GameStateInputEvent
+  , dbGameStateEventInternal :: Maybe GameStateInternalEvent
+  , dbGameStateEventOutput   :: Maybe GameStateOutputEvent
+  } deriving (Show, Generic)
+
+instance FromRow DbGameStateEvent where
+  fromRow = DbGameStateEvent <$> field <*> (PlayerId <$> field) <*> field <*> aesonField <*> aesonField <*> aesonField
 
 concat <$> mapM
   (deriveBoth ourAesonOptions)
-  [''GameId, ''DbGameState, ''NewDbGameState, ''JoinableGame, ''ChatLine, ''NewChatLine, ''DbUser]
+  [''GameId, ''DbGameState, ''NewDbGameState, ''JoinableGame, ''ChatLine, ''NewChatLine, ''DbPlayer]
 
 class HasConnection s where
   connection :: Lens' s Connection
@@ -143,7 +168,7 @@ class HasConnection s where
 instance HasConnection Connection where
   connection = lens id (const id)
 
-data DbLogicError = UserAlreadyExists Text | GameDoesntExist GameId deriving (Eq, Show, Generic)
+data DbLogicError = PlayerAlreadyExists PlayerId | GameDoesntExist GameId deriving (Eq, Show, Generic)
 makeClassyPrisms ''DbLogicError
 
 makeClassyPrisms ''SQLiteResponse
@@ -169,11 +194,11 @@ type DbConstraints e r m = (SqLiteConstraints e r m, AsDbLogicError e)
 
 selectChatLines :: SqLiteConstraints e r m => Maybe Posix -> Maybe GameId -> m [ChatLine]
 selectChatLines eMay gIdMay = query'
-  "SELECT epoch, game_id, username, text FROM chat_line WHERE epoch > ? AND game_id IS ?"
+  "SELECT epoch, game_state_id, player_id, text FROM chat_line WHERE epoch > ? AND game_state_id IS ?"
   (fromMaybe 0 eMay,gIdMay)
 
 insertChatLine :: DbConstraints e r m => NewChatLine -> m ()
-insertChatLine = execute' "INSERT INTO chat_line (game_id,username, text) VALUES (?,?,?)"
+insertChatLine = execute' "INSERT INTO chat_line (game_state_id,player_id, text) VALUES (?,?,?)"
 
 selectGameState :: DbConstraints e r m => GameId -> m DbGameState
 selectGameState gId = do
@@ -190,26 +215,36 @@ listJoinableGames = do
 
 updateGameState :: DbConstraints e r m => DbGameState -> m ()
 updateGameState (DbGameState gId d) = execute'
-  "UPDATE game_state SET data = ?, state_type = ? WHERE id = ?"
+  "UPDATE game_state SET data = ?, epoch = strftime('%s', CURRENT_TIMESTAMP), state_type = ? WHERE id = ?"
   (toAesonField d, toGameStateType d, gId)
 
 insertGameState :: DbConstraints e r m => NewDbGameState -> m GameId
 insertGameState = fmap GameId . insert "INSERT INTO game_state (state_type, data) VALUES (?,?)"
 
-findUser :: DbConstraints e r m => Text -> m (Maybe DbUser)
-findUser = fmap (^?_head) . query' "SELECT username, password FROM user WHERE username = ?" . Only
+insertGameStateEvent :: DbConstraints e r m => NewDbGameStateEvent -> m ()
+insertGameStateEvent ne = do
+  _ <- selectGameState (newDbGameStateEventGameId ne)
+  execute' "INSERT INTO game_state_event (game_state_id, player_id, input, internal, output) VALUES (?,?,?,?,?)" ne
 
-insertUser :: DbConstraints e r m => DbUser -> m ()
-insertUser (DbUser uname p) = do
-  uMay <- findUser uname
-  unless (isNothing uMay) $ throwing _UserAlreadyExists uname
+listGameStateEvents :: DbConstraints e r m => GameId -> Maybe Posix -> m [DbGameStateEvent]
+listGameStateEvents gId eMay = query'
+  "SELECT game_state_id, player_id, epoch, input, internal, output FROM game_state_event WHERE game_state_id = ? and epoch > ?"
+  (gId, fromMaybe 0 eMay)
+
+findPlayer :: DbConstraints e r m => PlayerId -> m (Maybe DbPlayer)
+findPlayer = fmap (^?_head) . query' "SELECT id, password FROM player WHERE id = ?" . Only . unPlayerId
+
+insertPlayer :: DbConstraints e r m => DbPlayer -> m ()
+insertPlayer (DbPlayer pId p) = do
+  pMay <- findPlayer pId
+  unless (isNothing pMay) $ throwing _PlayerAlreadyExists pId
   pwBs <- liftIO $ makePassword (encodeUtf8 p) 17
-  execute' "INSERT INTO user (username, password) VALUES (?,?)" (uname,(decodeUtf8 pwBs))
+  execute' "INSERT INTO player (id, password) VALUES (?,?)" (unPlayerId pId,(decodeUtf8 pwBs))
 
-checkLogin :: DbConstraints e r m => DbUser -> m Bool
-checkLogin (DbUser u p) = do
-  uMay <- findUser u
-  pure $ maybe False (verifyPassword (encodeUtf8 p) . (^.GP.field @"dbUserPassword".to encodeUtf8)) uMay
+checkLogin :: DbConstraints e r m => DbPlayer -> m Bool
+checkLogin (DbPlayer pId p) = do
+  pMay <- findPlayer pId
+  pure $ maybe False (verifyPassword (encodeUtf8 p) . (^.GP.field @"dbPlayerPassword".to encodeUtf8)) pMay
 
 initDb ::
   SqLiteConstraints e r m
@@ -223,15 +258,23 @@ initDb =
       \, state_type TEXT NOT NULL\
       \, data TEXT NOT NULL\
       \)"
+    qGameStateEvent = "CREATE TABLE IF NOT EXISTS game_state_event\
+      \( game_state_id INTEGER REFERENCES game_state(id)\
+      \, player_id TEXT NOT NULL references player(id)\
+      \, epoch INTEGER NOT NULL DEFAULT (strftime('%s',CURRENT_TIMESTAMP))\
+      \, input TEXT NOT NULL\
+      \, internal TEXT NOT NULL\
+      \, output TEXT NOT NULL\
+      \)"
     qChatLines = "CREATE TABLE IF NOT EXISTS chat_line\
       \( id INTEGER PRIMARY KEY\
       \, epoch INTEGER NOT NULL DEFAULT (strftime('%s',CURRENT_TIMESTAMP))\
-      \, game_id INTEGER REFERENCES game_state(id)\
-      \, username TEXT REFERENCES user(id)\
+      \, game_state_id INTEGER REFERENCES game_state(id)\
+      \, player_id TEXT REFERENCES player(id)\
       \, text TEXT NOT NULL\
       \)"
-    qUsers = "CREATE TABLE IF NOT EXISTS user\
-      \( username TEXT NOT NULL PRIMARY KEY \
+    qPlayer = "CREATE TABLE IF NOT EXISTS player\
+      \( id TEXT NOT NULL PRIMARY KEY \
       \, password TEXT NOT NULL\
       \)"
   in
@@ -239,8 +282,9 @@ initDb =
       traverse_ (execute_ conn)
         [ enableForeignKeys
         , qGameState
+        , qGameStateEvent
         , qChatLines
-        , qUsers
+        , qPlayer
         ]
 
 insert ::

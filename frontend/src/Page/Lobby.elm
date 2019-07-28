@@ -29,6 +29,9 @@ type Msg
     | HandleListResp (Result Http.Error (List BE.ChatLine))
     | MakeNewGame
     | HandleNewGameResp (Result Http.Error BE.GameId)
+    | HandleJoinableResp (Result Http.Error (List BE.JoinableGame))
+    | HandleJoinResp BE.GameId (Result Http.Error ())
+    | JoinGame BE.GameId
 
 
 type alias Model =
@@ -39,6 +42,8 @@ type alias Model =
     , validationIssues : List String
     , newLineSubmission : RemoteData String ()
     , newGameSubmission : RemoteData String BE.GameId
+    , joinableGames : List BE.JoinableGame
+    , joinGameSubmission : RemoteData String BE.GameId
     }
 
 
@@ -46,8 +51,8 @@ type alias PageMsg =
     Page.SubMsg Msg
 
 
-init : Nav.Key -> Session.User -> ( Model, Cmd PageMsg )
-init key user =
+init : Nav.Key -> Session.Player -> ( Model, Cmd PageMsg )
+init key player =
     ( { newChatLine = ""
       , lastUpdated = Nothing
       , chatLines = []
@@ -55,18 +60,20 @@ init key user =
       , validationIssues = []
       , newLineSubmission = RemoteData.NotAsked
       , newGameSubmission = RemoteData.NotAsked
+      , joinableGames = []
+      , joinGameSubmission = RemoteData.NotAsked
       }
     , Task.perform (Page.wrapChildMsg Tick) Time.now
     )
 
 
-subscriptions : Session.User -> Model -> Sub PageMsg
+subscriptions : Session.Player -> Model -> Sub PageMsg
 subscriptions _ _ =
     Time.every 5000 (Page.wrapChildMsg Tick)
 
 
-update : Nav.Key -> Session.User -> Msg -> Model -> ( Model, Cmd PageMsg )
-update key user msg model =
+update : Nav.Key -> Session.Player -> Msg -> Model -> ( Model, Cmd PageMsg )
+update key player msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
@@ -75,10 +82,10 @@ update key user msg model =
             ( { model | newChatLine = l }, Cmd.none )
 
         SubmitNewLine ->
-            case validateNewChatLine user model of
+            case validateNewChatLine player model of
                 Ok newChatLine ->
                     ( { model | validationIssues = [], newLineSubmission = RemoteData.Loading }
-                    , BE.postApiLobby user.token newChatLine (Page.wrapChildMsg HandleNewLineResp)
+                    , BE.postApiLobby player.token newChatLine (Page.wrapChildMsg HandleNewLineResp)
                     )
 
                 Err problems ->
@@ -91,10 +98,13 @@ update key user msg model =
 
         Tick time ->
             ( model
-            , BE.getApiLobby
-                user.token
-                (model.chatLines |> List.map (.chatLineTime >> Time.posixToMillis) |> List.maximum)
-                (Page.wrapChildMsg HandleListResp)
+            , Cmd.batch
+                [ BE.getApiLobby
+                    player.token
+                    (model.chatLines |> List.map (.chatLineTime >> Time.posixToMillis) |> List.maximum)
+                    (Page.wrapChildMsg HandleListResp)
+                , BE.getApiGamesJoinable player.token (Page.wrapChildMsg HandleJoinableResp)
+                ]
             )
 
         HandleListResp (Err e) ->
@@ -128,7 +138,7 @@ update key user msg model =
 
         MakeNewGame ->
             ( { model | newGameSubmission = RemoteData.Loading }
-            , BE.postApiGame user.token (Page.wrapChildMsg HandleNewGameResp)
+            , BE.postApiGames player.token (Page.wrapChildMsg HandleNewGameResp)
             )
 
         HandleNewGameResp r ->
@@ -141,6 +151,30 @@ update key user msg model =
             , RemoteData.unwrap
                 Cmd.none
                 (\gId -> Route.pushRoute key (Route.Game gId))
+                remoteData
+            )
+
+        HandleJoinableResp (Err e) ->
+            ( model, Cmd.none )
+
+        HandleJoinableResp (Ok gs) ->
+            ( { model | joinableGames = gs }, Cmd.none )
+
+        JoinGame gId ->
+            ( { model | joinGameSubmission = RemoteData.Loading }
+            , BE.postApiGamesByGameIdEvents player.token gId (BE.NewGameEventInput BE.AddPlayer) (Page.wrapChildMsg (HandleJoinResp gId))
+            )
+
+        HandleJoinResp gId r ->
+            let
+                remoteData =
+                    RemoteData.fromResult r
+                        |> RemoteData.mapBoth (always gId) Utils.httpErrorToStr
+            in
+            ( { model | joinGameSubmission = remoteData }
+            , RemoteData.unwrap
+                Cmd.none
+                (\_ -> Route.pushRoute key (Route.Game gId))
                 remoteData
             )
 
@@ -157,8 +191,8 @@ jumpToChatBottom =
 -- Come back to this later.
 
 
-validateNewChatLine : Session.User -> Model -> Result.Result (List String) String
-validateNewChatLine user model =
+validateNewChatLine : Session.Player -> Model -> Result.Result (List String) String
+validateNewChatLine player model =
     let
         trimmedLine =
             String.trim model.newChatLine
@@ -180,19 +214,20 @@ validateNewChatLine user model =
         Result.Err allErrs
 
 
-view : Model -> Browser.Document Msg
-view model =
+view : Session.Player -> Model -> Browser.Document PageMsg
+view player model =
     { title = "Dissidence - Lobby"
     , body =
-        [ H.div [ HA.class "chatbox-container" ]
+        [ Page.logoutView player
+        , H.div [ HA.class "chatbox-container" ]
             [ H.h1 [] [ H.text "Lobby" ]
             , H.div [ HA.id "chatbox", HA.class "chatbox" ] (List.map chatLineView model.chatLines)
-            , H.form [ HE.onSubmit SubmitNewLine ]
+            , H.form [ HE.onSubmit (Page.ChildMsg SubmitNewLine) ]
                 [ H.ul []
                     [ H.li [ HA.class "chat-message" ]
                         [ H.input
                             [ HA.placeholder "type a chat message"
-                            , HE.onInput SetNewLine
+                            , HE.onInput (Page.wrapChildMsg SetNewLine)
                             , HA.value model.newChatLine
                             , HA.class "chat-message-input"
                             , HAA.ariaLabel "Enter Chat Message"
@@ -213,20 +248,29 @@ view model =
                 ]
             ]
         , H.div []
-            [ H.button [ HE.onClick MakeNewGame ] [ H.text "New Game" ]
+            [ H.ul [] (List.map joinableGame model.joinableGames)
+            , H.button [ HE.onClick (Page.ChildMsg MakeNewGame) ] [ H.text "New Game" ]
             ]
         ]
     }
 
 
-chatWarnings : NEL.Nonempty String -> H.Html Msg
+joinableGame : BE.JoinableGame -> H.Html PageMsg
+joinableGame g =
+    H.li []
+        [ H.text ("Game " ++ String.fromInt g.joinableGameId ++ " (" ++ String.fromInt g.playerCount ++ "/10)")
+        , H.button [ HE.onClick (Page.ChildMsg (JoinGame g.joinableGameId)) ] [ H.text "Join" ]
+        ]
+
+
+chatWarnings : NEL.Nonempty String -> H.Html PageMsg
 chatWarnings errors =
     H.li [ HA.class "chat-warnings" ] [ H.ul [ HA.class "warn" ] (List.map (\em -> H.li [] [ H.text em ]) (NEL.toList errors)) ]
 
 
-chatLineView : BE.ChatLine -> H.Html Msg
+chatLineView : BE.ChatLine -> H.Html PageMsg
 chatLineView cl =
     H.p []
-        [ H.b [] [ H.text cl.chatLineUsername, H.text "> " ]
+        [ H.b [] [ H.text cl.chatLinePlayerId, H.text "> " ]
         , H.text cl.chatLineText
         ]

@@ -34,44 +34,50 @@ waitingForPlayersTests = testGroup "Waiting For Players" $
     [ testCase "Add one to a game of 1" $
       inputTest
         (WaitingForPlayers player1 Set.empty)
-        (AddPlayer player2)
+        player2
+        AddPlayer
         (Right (WaitingForPlayers player1 (Set.fromList (take 1 players)),Nothing, Just $ PlayerAdded player2))
     , testCase "Adds all the way up to 10 players" $
      for_ (take 8 . drop 2 . inits $ players) $ \(p:ps) ->
        inputTest
          (WaitingForPlayers player1 (Set.fromList ps))
-         (AddPlayer p)
+         p
+         AddPlayer
          (Right (WaitingForPlayers player1 (Set.fromList (p:ps)),Nothing, Just $ PlayerAdded p))
     , testCase "11th player errors" $
      inputTest
        (WaitingForPlayers player1 (Set.fromList . take 9 $ players))
-       (AddPlayer player11)
+       player11
+       AddPlayer
        (Left GameIsFull)
     ]
   , testGroup "RemovePlayer" $
     [ testCase "Removing owner should error" $
-      inputTest (WaitingForPlayers player1 Set.empty) (RemovePlayer (natToPId 1))
+      inputTest (WaitingForPlayers player1 Set.empty) (natToPId 1) RemovePlayer
         (Left GameOwnerCannotLeave)
         , testCase "Removing non owner should work" $
-          inputTest (WaitingForPlayers player1 (Set.fromList [player2])) (RemovePlayer (natToPId 2))
+          inputTest (WaitingForPlayers player1 (Set.fromList [player2])) (natToPId 2) RemovePlayer
             (Right (WaitingForPlayers player1 Set.empty, Nothing, Just $ PlayerRemoved (natToPId 2)))
     ]
   , testGroup "StartGame" $
     [ testCase "Cannot start game with less than 5 players" $ do
       inputTest
         (WaitingForPlayers player1 Set.empty)
-        (StartGame (natToPId 1))
+        (natToPId 1)
+        StartGame
         (Left NotEnoughPlayers)
       for_ (take 3 . drop 1 . inits $ players) $ \ps ->
         inputTest
           (WaitingForPlayers player1 (Set.fromList ps))
-          (StartGame (natToPId 1))
+          (natToPId 1)
+          StartGame
           (Left NotEnoughPlayers)
     , testCase "!Owner cannot start" $
       for_ [2..10] $ \i ->
         inputTest
           (WaitingForPlayers player1 (Set.fromList (take 9 players)))
-          (StartGame (natToPId i))
+          (natToPId i)
+          StartGame
           (Left OwnerMustStartGame)
     , testCase "Owner starts game" $
       -- This is set to our StdGen seed of 1337
@@ -84,7 +90,8 @@ waitingForPlayersTests = testGroup "Waiting For Players" $
            ]
       in inputTest
         (WaitingForPlayers player1 (Set.fromList (take 4 players)))
-        (StartGame (natToPId 1))
+        (natToPId 1)
+        StartGame
         (Right
           (Pregame expectedRoles Map.empty
           , Just $ AssignRoles expectedRoles
@@ -100,24 +107,25 @@ waitingForPlayersTests = testGroup "Waiting For Players" $
          , isn't (_As @"AbortGame")
          ]
     in for_ (filter validInput everyInput) $ \i ->
-      inputTest (WaitingForPlayers player1 Set.empty) i (Left InvalidActionForGameState)
+      inputTest (WaitingForPlayers player1 Set.empty) (natToPId 2) i (Left InvalidActionForGameState)
   ]
 
 pregameTests :: TestTree
 pregameTests = testGroup "Pregame" $
   [ testCase "Confirming for player not in game errors" $
-    inputTest (Pregame roles Map.empty) (ConfirmOk $ natToPId 10)
+    inputTest (Pregame roles Map.empty) (natToPId 10) ConfirmOk
       (Left $ PlayerNotInGame (natToPId 10))
   , testCase "Confirming works" $
     inputTest
       (Pregame roles Map.empty)
-      (ConfirmOk $ natToPId 1)
+      (natToPId 1)
+      ConfirmOk
       (Right
         ( Pregame roles (Map.singleton (natToPId 1) True)
         , Nothing
         , Just $ PlayerConfirmed ))
   , testCase "Confirming all players starts game" $
-    inputsTest (Pregame roles Map.empty) (ConfirmOk . natToPId <$> 1 :| [2..5]) $ Right
+    inputsTest (Pregame roles Map.empty) ((,ConfirmOk) . natToPId <$> 1 :| [2..5]) $ Right
       ( Rounds roundsState
       , Just $ ShufflePlayerOrder playerOrder
       , Just $ RoundsCommenced roundsState
@@ -128,54 +136,56 @@ pregameTests = testGroup "Pregame" $
          , isn't (_As @"AbortGame")
          ]
     in for_ (filter validInput everyInput) $ \i ->
-      inputTest (Pregame roles Map.empty) i (Left InvalidActionForGameState)
+      inputTest (Pregame roles Map.empty) (natToPId 2) i (Left InvalidActionForGameState)
   ]
 
 roundsTests :: TestTree
 roundsTests = testGroup "Round" $
   [ testGroup "Team Proposal" $
     [ testCase "Proposing Team works" $
-      inputTest (Rounds roundsState) (ProposeTeam (natToPId 2) decentRound1Proposal)
+      inputTest (Rounds roundsState) (natToPId 2) (ProposeTeam decentRound1Proposal)
         (Right (proposedState, Nothing, Just $ TeamProposed decentRound1Proposal))
     , testCase "Proposing Team doesn't work for not leader" $
-      inputTest (Rounds roundsState) (ProposeTeam (natToPId 1) (pIdSet [1,2]))
+      inputTest (Rounds roundsState) (natToPId 1) (ProposeTeam (pIdSet [1,2]))
         (Left PlayerIsNotLeader)
     , testCase "Proposing Team that is not the correct size errors" $
       let playerIds = natToPId <$> [1,2,3,4,5]
       in for_ [0,1,3,4,5] $ \n ->
-        inputTest (Rounds roundsState) (ProposeTeam (natToPId 2) (Set.fromList $ take n playerIds))
+        inputTest (Rounds roundsState) (natToPId 2) (ProposeTeam (Set.fromList $ take n playerIds))
           (Left IncorrectTeamSize)
     , testCase "Proposing Team doesn't work when team proposed" $
       inputTest
         proposedState
-        (ProposeTeam (natToPId 1) decentRound1Proposal)
+        (natToPId 1)
+        (ProposeTeam decentRound1Proposal)
         (Left $ InvalidActionForGameState)
     , testCase "Proposing Team doesn't work when team approved" $
       inputTest
         approvedState
-        (ProposeTeam (natToPId 1) decentRound1Proposal)
+        (natToPId 1)
+        (ProposeTeam decentRound1Proposal)
         (Left $ InvalidActionForGameState)
     ]
   , testGroup "Team Voting"
     [ testCase "Voting works" $
-      inputTest proposedState (VoteOnTeam (natToPId 1) False)
+      inputTest proposedState (natToPId 1) (VoteOnTeam False)
         (Right
-          ( proposedState & _As @"Rounds".roundsCurrentProposal._As @"Proposed"._2. at (natToPId 1) ?~ False
+          ( proposedState & _As @"Rounds".roundsCurrentProposal._As @"Proposed"._2._Wrapped. at (natToPId 1) ?~ False
           , Nothing
           , Nothing
           ))
     , testCase "Leader doesn't vote on their own team" $
-      inputTest proposedState (VoteOnTeam (natToPId 2) False)
+      inputTest proposedState (natToPId 2) (VoteOnTeam False)
         (Left LeaderCannotVoteOnTeam)
     , testCase "Voting Twice Doesn't work" $
-       inputsTest proposedState ((VoteOnTeam (natToPId 1) False) :| [VoteOnTeam (natToPId 1) True] )
+       inputsTest proposedState ((natToPId 1, VoteOnTeam False) :| [(natToPId 1, VoteOnTeam True)] )
         (Left DuplicateVote)
     , testGroup "Last vote concludes team proposal" $
-      let voteInputs = fmap (\(pId,b) -> VoteOnTeam (natToPId pId) b)
+      let voteInputs = fmap (\(pId,b) -> (natToPId pId,VoteOnTeam b))
       in
         [ testCase "Success moves to project vote" $
           let votes = (1,True) :| [(3,True),(4,True),(5,True)]
-              votesMap = Map.fromList . fmap (_1 %~ natToPId) . NEL.toList $ votes
+              votesMap = PlayersMap . Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
           in inputsTest proposedState (voteInputs votes) $ Right
             ( approvedState & _As @"Rounds".roundsCurrentVotes <>~
               [TeamVotingResult (natToPId 2) decentRound1Proposal votesMap]
@@ -184,7 +194,7 @@ roundsTests = testGroup "Round" $
             )
         , testCase "Team Vote Failure cycles leader" $
           let votes = (1,False) :| [(3,False),(4,True),(5,True)]
-              votesMap = Map.fromList . fmap (_1 %~ natToPId) . NEL.toList $ votes
+              votesMap = PlayersMap . Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
           in inputsTest proposedState (voteInputs votes) $ Right
             ( proposedState
               & _As @"Rounds".roundsCurrentProposal .~ NoProposal
@@ -196,8 +206,8 @@ roundsTests = testGroup "Round" $
             )
         , testCase "Fifth failure means Side-effects win" $
           let votes = (1,False) :| [(3,False),(4,True),(5,True)]
-              votesMap = Map.fromList . fmap (_1 %~ natToPId) . NEL.toList $ votes
-              votesFailMap = Map.fromList . fmap (\i -> (natToPId i, False))
+              votesMap = PlayersMap . Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
+              votesFailMap = PlayersMap . Map.fromList . fmap (\pId -> (natToPId pId, False))
           in inputsTest
             (proposedState & _As @"Rounds" . roundsCurrentVotes .~
               [ TeamVotingResult (natToPId 4) decentRound1Proposal (votesFailMap [1,2,3,5])
@@ -221,23 +231,23 @@ roundsTests = testGroup "Round" $
         ]
     , testCase "Voting doesn't work when team not-proposed or approved" $
       for_ [Rounds roundsState, approvedState] $ \s ->
-        inputTest s (VoteOnTeam (natToPId 1) True) (Left InvalidActionForGameState)
+        inputTest s (natToPId 1) (VoteOnTeam True) (Left InvalidActionForGameState)
     ]
   , testGroup "Project Voting"
     [ testCase "Voting works" $
-      inputTest approvedState (VoteOnProject (natToPId 4) True) (Right
-        ( approvedState &_As @"Rounds".roundsCurrentProposal._As @"Approved"._2.at (natToPId 4) ?~ True
+      inputTest approvedState (natToPId 4) (VoteOnProject True) (Right
+        ( approvedState &_As @"Rounds".roundsCurrentProposal._As @"Approved"._2._Wrapped.at (natToPId 4) ?~ True
         , Nothing
         , Nothing
         ))
     , testCase "Voting Twice Doesn't work" $
-       inputsTest approvedState ((VoteOnProject (natToPId 1) False) :| [VoteOnProject (natToPId 1) True] )
+       inputsTest approvedState ((natToPId 1, VoteOnProject False) :| [(natToPId 1, VoteOnProject True)] )
         (Left DuplicateVote)
     , testCase "Only players in team can vote " $
-      inputTest approvedState (VoteOnProject (natToPId 2) True) (Left PlayerNotInTeam)
+      inputTest approvedState (natToPId 2) (VoteOnProject True) (Left PlayerNotInTeam)
     , testGroup "Last vote finalises round" $
       [ testCase "All success makes crusaders win" $
-        inputsTest approvedState ((VoteOnProject (natToPId 1) True) :| [VoteOnProject (natToPId 4) True])
+        inputsTest approvedState ((natToPId 1, VoteOnProject True) :| [(natToPId 4, VoteOnProject True)])
           (Right
             (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
@@ -248,7 +258,7 @@ roundsTests = testGroup "Round" $
             , Just $ NextRound True 0
             ))
       , testCase "1 failure fails project on normal round" $
-        inputsTest approvedState ((VoteOnProject (natToPId 1) False) :| [VoteOnProject (natToPId 4) True]) $
+        inputsTest approvedState ((natToPId 1, VoteOnProject False) :| [(natToPId 4, VoteOnProject True)]) $
           (Right
             (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
@@ -261,7 +271,7 @@ roundsTests = testGroup "Round" $
       , testCase "1 failure succeeds project on 2 fail round" $
         inputsTest
           (approvedState & _As @"Rounds" . roundsCurrentShape . field @"roundShapeTwoFails" .~ True)
-          ((VoteOnProject (natToPId 1) False) :| [VoteOnProject (natToPId 4) True])
+          ((natToPId 1, VoteOnProject False) :| [(natToPId 4, VoteOnProject True)])
           (Right
             (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
@@ -274,7 +284,7 @@ roundsTests = testGroup "Round" $
       , testCase "2 failures fail project on a 2 fail round" $
         inputsTest
           (approvedState & _As @"Rounds" . roundsCurrentShape . field @"roundShapeTwoFails" .~ True)
-          ((VoteOnProject (natToPId 1) False) :| [VoteOnProject (natToPId 4) False])
+          ((natToPId 1, VoteOnProject False) :| [(natToPId 4, VoteOnProject False)])
           (Right
             (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
@@ -286,7 +296,7 @@ roundsTests = testGroup "Round" $
             ))
       , testCase "3rd Win moves to firing round" $
         inputsTest finalRound
-          ((VoteOnProject (natToPId 1) True) :| [VoteOnProject (natToPId 2) True, VoteOnProject (natToPId 3) True])
+          ((natToPId 1, VoteOnProject True) :| [(natToPId 2,VoteOnProject True), (natToPId 3, VoteOnProject True)])
           ( Right
             (FiringRound roles
                 [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
@@ -299,7 +309,7 @@ roundsTests = testGroup "Round" $
             , Just ThreeSuccessfulProjects))
       , testCase "3rd Fail moves to side effects winning" $
         inputsTest finalRound
-          ((VoteOnProject (natToPId 1) True) :| [VoteOnProject (natToPId 2) True, VoteOnProject (natToPId 3) False])
+          ((natToPId 1, VoteOnProject True) :| [(natToPId 2, VoteOnProject True), (natToPId 3, VoteOnProject False)])
           ( Right
             (Complete roles (SideEffectsWin ThreeFailedProjects)
                 [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
@@ -313,7 +323,7 @@ roundsTests = testGroup "Round" $
       ]
     , testCase "Voting doesn't work when still in proposal" $
       for_ [Rounds roundsState, proposedState] $ \s ->
-        inputTest s (VoteOnProject (natToPId 1) True) (Left InvalidActionForGameState)
+        inputTest s (natToPId 1) (VoteOnProject True) (Left InvalidActionForGameState)
     ]
   , testCase "Invalid Inputs are Rejected" $
     let validInput i = all ($ i)
@@ -324,21 +334,21 @@ roundsTests = testGroup "Round" $
          ]
     in for_ (filter validInput everyInput) $ \i ->
         for_ [Rounds roundsState, proposedState, approvedState] $ \s ->
-          inputTest s i (Left InvalidActionForGameState)
+          inputTest s (natToPId 2) i (Left InvalidActionForGameState)
   ]
 
 firingRoundTests :: TestTree
 firingRoundTests = testGroup "FiringRound" $
   [ testCase "Players other than the middle manager can't vote" $
-    inputTest firingRound (FirePlayer (natToPId 1) (natToPId 2)) (Left PlayerNotManager)
+    inputTest firingRound (natToPId 1) (FirePlayer (natToPId 2)) (Left PlayerNotManager)
   , testCase "Middle manager fires FP manager. Side Effects Win" $
-    inputTest firingRound (FirePlayer (natToPId 2) (natToPId 1)) $ Right
+    inputTest firingRound (natToPId 2) (FirePlayer (natToPId 1)) $ Right
       ( Complete roles (SideEffectsWin FPExpertFired) firingRoundH
       , Nothing
       , Just $ GameEnded roles (SideEffectsWin FPExpertFired)
       )
   , testCase "Middle manager fires Anyone Else. Crusaders Win" $
-    inputTest firingRound (FirePlayer (natToPId 2) (natToPId 4)) $ Right
+    inputTest firingRound (natToPId 2) (FirePlayer (natToPId 4)) $ Right
       ( Complete roles CrusadersWin firingRoundH , Nothing , Just $ GameEnded roles CrusadersWin)
   , testCase "Invalid Inputs are Rejected" $
     let validInput i = all ($ i)
@@ -346,7 +356,7 @@ firingRoundTests = testGroup "FiringRound" $
          , isn't (_As @"AbortGame")
          ]
     in for_ (filter validInput everyInput) $ \i ->
-      inputTest (FiringRound roles []) i (Left InvalidActionForGameState)
+      inputTest (FiringRound roles []) (natToPId 2) i (Left InvalidActionForGameState)
   ]
   where
     firingRound = FiringRound roles firingRoundH
@@ -370,30 +380,31 @@ inputEventTests = testGroup "inputEvent" $
          , isn't (_As @"Aborted")
          ]
     in for_ (filter validState everyState) $ \s ->
-      inputTest s (AbortGame (natToPId 1)) (Right (Aborted (natToPId 1), Nothing, Just $ GameAborted (natToPId 1)))
+      inputTest s (natToPId 1) AbortGame (Right (Aborted (natToPId 1), Nothing, Just $ GameAborted (natToPId 1)))
   , testGroup "Complete" $
     [ testCase "All inputs rejected" $
-      for_ everyInput $ \i -> inputTest (Aborted (natToPId 1)) i (Left InvalidActionForGameState)
+      for_ everyInput $ \i -> inputTest (Aborted (natToPId 1)) (natToPId 2) i (Left InvalidActionForGameState)
     ]
   , testGroup "Aborted" $
     [ testCase "All inputs rejected" $
-      for_ everyInput $ \i -> inputTest (Aborted (natToPId 1)) i (Left InvalidActionForGameState)
+      for_ everyInput $ \i -> inputTest (Aborted (natToPId 1)) (natToPId 2) i (Left InvalidActionForGameState)
     ]
   ]
 
 inputsTest
   :: GameState
-  -> NonEmpty GameStateInputEvent
+  -> NonEmpty (PlayerId, GameStateInputEvent)
   -> Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
   -> IO ()
-inputsTest gs is = inputExpectation (foldrM (\i (gs',_,_) -> inputEvent gs' i Nothing) (gs, Nothing,Nothing) is)
+inputsTest gs is = inputExpectation (foldrM (\(pId, i) (gs',_,_) -> inputEvent gs' pId i Nothing) (gs, Nothing,Nothing) is)
 
 inputTest
   :: GameState
+  -> PlayerId
   -> GameStateInputEvent
   -> Either GameStateInputError (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
   -> IO ()
-inputTest gs i = inputExpectation (inputEvent gs i Nothing)
+inputTest gs pId i = inputExpectation (inputEvent gs pId i Nothing)
 
 inputExpectation
   :: (Eq a, Show a)
@@ -446,29 +457,29 @@ roundsState = initialRoundsState roles playerOrder Players5
 
 everyInput :: [GameStateInputEvent]
 everyInput =
-  [ AddPlayer player2
-  , RemovePlayer (natToPId 2)
-  , StartGame (natToPId 2)
-  , ConfirmOk (natToPId 2)
-  , ProposeTeam (natToPId 1) (pIdSet [1])
-  , VoteOnTeam (natToPId 2) True
-  , VoteOnProject (natToPId 2) True
-  , FirePlayer (natToPId 2) (natToPId 1)
-  , AbortGame (natToPId 2)
+  [ AddPlayer
+  , RemovePlayer
+  , StartGame
+  , ConfirmOk
+  , ProposeTeam (pIdSet [1])
+  , VoteOnTeam True
+  , VoteOnProject True
+  , FirePlayer (natToPId 1)
+  , AbortGame
   ]
 
 decentRound1Proposal :: Set (PlayerId)
 decentRound1Proposal = pIdSet [4, 1]
 proposedState :: GameState
-proposedState = Rounds (roundsState & roundsCurrentProposal .~ Proposed decentRound1Proposal Map.empty)
+proposedState = Rounds (roundsState & roundsCurrentProposal .~ Proposed decentRound1Proposal (PlayersMap Map.empty))
 approvedState :: GameState
-approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRound1Proposal Map.empty)
+approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRound1Proposal (PlayersMap Map.empty))
 
 finalRound :: GameState
 finalRound = Rounds $ RoundsState
   roles
   playerOrder
-  (CurrentRoundState (RoundShape 3 False) (Approved (pIdSet [1..3]) Map.empty) [])
+  (CurrentRoundState (RoundShape 3 False) (Approved (pIdSet [1..3]) (PlayersMap Map.empty)) [])
   []
   [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
   , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)

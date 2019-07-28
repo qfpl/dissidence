@@ -1,18 +1,24 @@
-{-# LANGUAGE ConstraintKinds, DataKinds, DeriveGeneric, FlexibleContexts, OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications, TypeOperators          #-}
+{-# LANGUAGE ConstraintKinds, DataKinds, DeriveFunctor, DeriveGeneric, FlexibleContexts                #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell, TypeApplications, TypeOperators                                          #-}
 module Game.Dissidence where
 
 import Control.Lens hiding (Context)
 
-import           Control.Monad                        (unless)
+import           Control.Monad                        (unless, when)
 import           Control.Monad.Error.Lens             (throwing)
 import           Control.Monad.Except                 (ExceptT, MonadError, runExceptT)
 import           Control.Monad.IO.Class               (MonadIO, liftIO)
-import           Control.Monad.Reader                 (ReaderT, runReaderT)
+import           Control.Monad.Reader                 (MonadReader, ReaderT, runReaderT)
 import           Crypto.JOSE                          (Error)
-import           Data.Aeson                           (FromJSON, ToJSON)
+import           Data.Aeson                           (FromJSON, ToJSON, encode)
 import qualified Data.ByteString.Lazy.Char8           as LC8
+import           Data.Foldable                        (fold)
 import           Data.Generics.Product                (field)
+import           Data.List                            (sortOn)
+import           Data.Maybe                           (isNothing, mapMaybe)
+import           Data.Random                          ()
+import           Data.Random.Internal.Source          (MonadRandom (getRandomPrim))
 import           Data.Text                            (Text)
 import qualified Data.Text.Lazy                       as TL
 import qualified Data.Text.Lazy.Encoding              as TL
@@ -24,18 +30,44 @@ import           Network.Wai.Middleware.Cors          (cors, corsOrigins, corsRe
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import           Servant
 import           Servant.Auth.Server
+import           Servant.Elm                          (deriveBoth)
 
-import Game.Dissidence.Config    (load)
-import Game.Dissidence.Db        (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
-                                  DbConstraints, DbError (..), DbGameState, DbUser, GameId (..), JoinableGame,
-                                  NewChatLine (..), NewDbGameState (..), Posix, checkLogin, initDb,
-                                  insertChatLine, insertGameState, insertUser, listJoinableGames,
-                                  selectChatLines, selectGameState)
-import Game.Dissidence.Env       (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath,
-                                  envJwtSettings, withEnvDbConnection)
-import Game.Dissidence.GameState (PlayerId (..), newGame)
+import Game.Dissidence.AesonOptions (ourAesonOptions)
+import Game.Dissidence.Config       (load)
+import Game.Dissidence.Db           (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
+                                     DbConstraints, DbError (..), DbGameState, DbPlayer, GameId (..),
+                                     JoinableGame, NewChatLine (..), NewDbGameState (..),
+                                     NewDbGameStateEvent (..), Posix, checkLogin, findPlayer, initDb,
+                                     insertChatLine, insertGameState, insertGameStateEvent, insertPlayer,
+                                     listGameStateEvents, listJoinableGames, selectChatLines, selectGameState,
+                                     updateGameState)
+import Game.Dissidence.Env          (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath,
+                                     envJwtSettings, withEnvDbConnection)
+import Game.Dissidence.GameState    (AsGameStateInputError (..), GameStateInputError, GameStateInputEvent,
+                                     GameStateOutputEvent, PlayerId, inputEvent, newGame)
 
-data AppError = AppJwtMisconfiguration Error | AppLoginFailed | AppRequireUser | AppDbError DbError deriving (Show, Generic)
+data NewGameEvent = NewGameEventChat Text | NewGameEventInput GameStateInputEvent deriving (Generic, Show)
+deriveBoth ourAesonOptions ''NewGameEvent
+
+data GameEventData = GameEventChat ChatLine | GameEventOutput GameStateOutputEvent deriving (Generic, Show)
+deriveBoth ourAesonOptions ''GameEventData
+
+data GameEvent = GameEvent
+  { gameEventTime   :: Posix
+  , gameEventPlayer :: PlayerId
+  , gameEventData   :: GameEventData
+  } deriving (Generic, Show)
+
+deriveBoth ourAesonOptions ''GameEvent
+
+data AppError
+  = AppJwtMisconfiguration Error
+  | AppLoginFailed
+  | AppRequirePlayer
+  | AppForbidden
+  | AppDbError DbError
+  | AppGameStateInputError GameStateInputError
+  deriving (Show, Generic)
 makeClassyPrisms ''AppError
 
 instance AsDbError AppError where
@@ -46,6 +78,9 @@ instance AsDbLogicError AppError where
 
 instance AsSQLiteResponse AppError where
   _SQLiteResponse = _AppDbError . _SQLiteResponse
+
+instance AsGameStateInputError AppError where
+  _GameStateInputError = _AppGameStateInputError . _GameStateInputError
 
 class HasCookieSettings a where
   cookieSettings :: Getter a CookieSettings
@@ -65,35 +100,49 @@ instance HasCookieSettings EnvWConnection where
 instance HasJwtSettings EnvWConnection where
   jwtSettings = envJwtSettings
 
-type AppConstraints e r m = (DbConstraints e r m, HasCookieSettings r, HasJwtSettings r, AsAppError e)
+type AppConstraints e r m = (DbConstraints e r m, HasCookieSettings r, HasJwtSettings r, AsAppError e, MonadRandom m, AsGameStateInputError e)
 
-type ChatApi = Auth '[JWT] Session :> AuthedChatApi
+newtype AppM' e a = AppM { unAppM :: ExceptT e (ReaderT EnvWConnection IO) a } deriving (MonadError e, MonadReader EnvWConnection, Functor, Applicative, Monad, MonadIO)
+type AppM = AppM' AppError
 
-type AuthedChatApi
-  =    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
+runAppM' :: AppM' e a -> EnvWConnection -> IO (Either e a)
+runAppM' m e = flip runReaderT e . runExceptT . unAppM $ m
+
+instance MonadRandom (AppM' e) where
+  getRandomPrim = liftIO . getRandomPrim
+
+type ChatApi = Auth '[JWT] Session :>
+  (    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
   :<|> ReqBody '[JSON] Text :> Post '[JSON] ()
+  )
 
 type GameApi
   = Auth '[JWT] Session :>
-    ( Capture "gameId" GameId :> (Get '[JSON] DbGameState :<|> "chat" :> AuthedChatApi)
+    ( Capture "gameId" GameId :>
+      (    Get '[JSON] DbGameState
+      :<|> "events" :>
+        (    QueryParam "since" Posix :> Get '[JSON] [GameEvent]
+        :<|> ReqBody '[JSON] NewGameEvent :> Post '[JSON] ()
+        )
+      )
     :<|> Post '[JSON] GameId
     :<|> "joinable" :> Get '[JSON] [JoinableGame]
     )
 
-type UserApi
-  =    ReqBody '[JSON] DbUser :> Post '[JSON] String
+type PlayerApi
+  =    ReqBody '[JSON] DbPlayer :> Post '[JSON] String
 
 type LoginApi
-  = ReqBody '[JSON] DbUser :> Post '[JSON] String
+  = ReqBody '[JSON] DbPlayer :> Post '[JSON] String
 
 type Api = "api" :>
   ("lobby" :> ChatApi
   :<|> "games" :> GameApi
-  :<|> "users" :> UserApi
+  :<|> "players" :> PlayerApi
   :<|> "login" :> LoginApi
   )
 
-data Session = Session { username :: Text } deriving Generic
+data Session = Session { playerId :: PlayerId } deriving Generic
 instance ToJSON Session
 instance FromJSON Session
 instance ToJWT Session
@@ -111,66 +160,108 @@ api :: Proxy Api
 api = Proxy
 
 server :: AppConstraints e r m => ServerT Api m
-server = chatApi Nothing :<|> gameApi :<|> userPost :<|> loginPost
+server = chatApi Nothing :<|> gameApi :<|> playerPost :<|> loginPost
 
-reqUser :: (MonadError e m, AsAppError e) => m a
-reqUser = throwing _AppRequireUser ()
+type AuthRes = AuthResult Session
+
+-- This doesn't have an expiry in it, does it? Probs should fix. :)
+checkSession :: AppConstraints e r m => AuthRes -> m Session
+checkSession (Authenticated s) = do
+  pMay <- findPlayer (s ^. field @"playerId")
+  when (isNothing pMay) $ throwing _AppRequirePlayer ()
+  pure s
+checkSession _ = throwing _AppRequirePlayer ()
 
 gameApi :: (AppConstraints e r m) => ServerT GameApi m
-gameApi (Authenticated s) = (\gId -> gameGet s gId :<|> authedChatApi s (Just gId)) :<|> gameNew s :<|> joinableGames s
-gameApi _                 = (const (reqUser :<|> (const reqUser :<|> const reqUser))) :<|> reqUser :<|> reqUser
+gameApi authRes =
+  (\gId -> gameGet authRes gId
+    :<|> ( gameLogs authRes gId :<|> gameUpdate authRes gId )
+    )
+  :<|> gameNew authRes
+  :<|> joinableGames authRes
 
 chatApi :: (AppConstraints e r m) => Maybe GameId -> ServerT ChatApi m
-chatApi gIdMay (Authenticated s) = authedChatApi s gIdMay
-chatApi _ _                      = (const reqUser) :<|> (const reqUser)
+chatApi gIdMay authRes = chatGet authRes gIdMay :<|> chatAppend authRes gIdMay
 
-authedChatApi :: (AppConstraints e r m) => Session -> Maybe GameId -> ServerT AuthedChatApi m
-authedChatApi s gIdMay = chatGet s gIdMay :<|> chatAppend s gIdMay
+chatGet :: AppConstraints e r m => AuthRes -> Maybe GameId -> Maybe Posix -> m [ChatLine]
+chatGet authRes gIdMay p = checkSession authRes *> selectChatLines p gIdMay
 
-chatGet :: AppConstraints e r m => Session -> Maybe GameId -> Maybe Posix -> m [ChatLine]
-chatGet _ gIdMay p = selectChatLines p gIdMay
+joinableGames :: AppConstraints e r m => AuthRes -> m [JoinableGame]
+joinableGames authRes = checkSession authRes *> listJoinableGames
 
-joinableGames :: AppConstraints e r m => Session -> m [JoinableGame]
-joinableGames _ = listJoinableGames
+chatAppend :: AppConstraints e r m => AuthRes -> Maybe GameId -> Text -> m ()
+chatAppend authRes gIdMay t = do
+  (Session pId) <- checkSession authRes
+  insertChatLine (NewChatLine gIdMay pId t)
 
-chatAppend :: AppConstraints e r m => Session -> Maybe GameId -> Text -> m ()
-chatAppend s gIdMay t = insertChatLine (NewChatLine gIdMay (username s) t)
+gameGet :: AppConstraints e r m => AuthRes -> GameId -> m DbGameState
+gameGet authRes gId = checkSession authRes *> selectGameState gId
 
-gameGet :: AppConstraints e r m => Session -> GameId -> m DbGameState
-gameGet _ gId = selectGameState gId
+gameUpdate :: AppConstraints e r m => AuthRes -> GameId -> NewGameEvent -> m ()
+gameUpdate authRes gId inputE  = do
+  (Session pId) <- checkSession authRes
+  -- TODO THIS NEEDS A TRANSACTTION!!!
+  gs <- selectGameState gId
+  case inputE of
+    NewGameEventChat nct -> do
+      insertChatLine (NewChatLine (Just gId) pId nct)
+    NewGameEventInput gsi -> do
+      (nGs,internalE,outputE) <- inputEvent (gs ^. field @"dbGameState") pId gsi Nothing
+      updateGameState (gs & field @"dbGameState" .~ nGs)
+      insertGameStateEvent (NewDbGameStateEvent gId pId gsi internalE outputE)
 
-gameNew :: AppConstraints e r m => Session -> m GameId
-gameNew s = insertGameState (NewDbGameState (newGame (PlayerId (username s))))
+gameLogs :: AppConstraints e r m => AuthRes -> GameId -> Maybe Posix -> m [GameEvent]
+gameLogs authRes gId sinceMay = do
+  (Session _pId) <- checkSession authRes
+  -- TODO: Censor events
+  gses <- listGameStateEvents gId sinceMay
+  cls  <- selectChatLines sinceMay (Just gId)
+  pure . sortOn (^.field @"gameEventTime") . fold $
+    [ (\cl -> GameEvent (cl ^. field @"chatLineTime") (cl ^. field @"chatLinePlayerId") (GameEventChat cl)) <$> cls
+    , mapMaybe (\gse ->
+        (gse ^?
+          field @"dbGameStateEventOutput"
+          ._Just.to (GameEvent (gse^.field @"dbGameStateEventTime") (gse^.field @"dbGameStatePlayerId") . GameEventOutput)
+          )
+        ) gses
+    ]
 
-userPost :: AppConstraints e r m => DbUser -> m String
-userPost dbUser = do
+gameNew :: AppConstraints e r m => AuthRes -> m GameId
+gameNew authRes = do
+  (Session pId) <- checkSession authRes
+  insertGameState (NewDbGameState (newGame pId))
+
+playerPost :: AppConstraints e r m => DbPlayer -> m String
+playerPost dbPlayer = do
   jwtS <- view jwtSettings
-  insertUser dbUser
-  sessionToJwt jwtS (Session (dbUser ^. field @"dbUsername"))
+  insertPlayer dbPlayer
+  sessionToJwt jwtS (Session (dbPlayer ^. field @"dbPlayerId"))
 
-loginPost :: AppConstraints e r m => DbUser -> m String
-loginPost dbUser = do
+loginPost :: AppConstraints e r m => DbPlayer -> m String
+loginPost dbPlayer = do
   jwtS <- view jwtSettings
-  b <- checkLogin dbUser
-  unless b $ throwing _AppRequireUser ()
-  sessionToJwt jwtS (Session (dbUser ^. field @"dbUsername"))
+  b <- checkLogin dbPlayer
+  unless b $ throwing _AppRequirePlayer ()
+  sessionToJwt jwtS (Session (dbPlayer ^. field @"dbPlayerId"))
 
 app :: Env -> Application
 app e = serveWithContext api ctx (hoistServerWithContext api (Proxy :: Proxy '[CookieSettings, JWTSettings]) (appHandler e) server)
   where
     ctx = (e ^. cookieSettings) :. (e ^. jwtSettings) :. EmptyContext
 
-runDbContext :: (AsSQLiteResponse e, MonadIO m) => Env -> ExceptT e (ReaderT EnvWConnection IO) a -> m (Either e a)
-runDbContext e = liftIO . withEnvDbConnection e . runReaderT . runExceptT
+runDbContext :: (AsSQLiteResponse e, MonadIO m) => Env -> AppM' e a -> m (Either e a)
+runDbContext e = liftIO . withEnvDbConnection e . runAppM'
 
-appHandler :: Env -> ExceptT AppError (ReaderT EnvWConnection IO) a -> Handler a
+appHandler :: Env -> AppM a -> Handler a
 appHandler e prog = do
   res <- runDbContext e prog
   case res of
     Left (AppDbError err)            -> throwError $ err500 { errBody = "Database error: " <> LC8.pack (show err) }
     Left AppLoginFailed              -> throwError err403
-    Left AppRequireUser              -> throwError err401
+    Left AppRequirePlayer            -> throwError err401
+    Left AppForbidden                -> throwError err403
     Left (AppJwtMisconfiguration je) -> throwError $ err500 { errBody = "JWT Misconfigured " <> LC8.pack (show je)}
+    Left (AppGameStateInputError ie) -> throwError $ err400 { errBody = encode ie }
     Right a                          -> pure a
 
 runApp :: IO ()

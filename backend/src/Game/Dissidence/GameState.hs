@@ -5,8 +5,13 @@ module Game.Dissidence.GameState
   , newGame
   , toGameStateType
   , GameState
+  , GameStateInputEvent
+  , GameStateOutputEvent
+  , GameStateInputError
+  , AsGameStateInputError(..)
   , EndCondition(..)
   , PlayerId(..)
+  , PlayersMap
   , RoundsState(..)
   , RoundResult(..)
   , ProposalState(..)
@@ -25,15 +30,16 @@ module Game.Dissidence.GameState
 
 import Control.Lens
 
-import           Control.Monad.Except  (MonadError, throwError)
-import           Data.Bool             (bool)
-import           Data.Generics.Product (field)
-import qualified Data.List.NonEmpty    as NEL
-import qualified Data.Map              as Map
-import           Data.Random.List      (shuffle)
-import           Data.RVar             (MonadRandom, sampleRVar)
-import qualified Data.Set              as Set
-import           Data.Text             (Text)
+import           Control.Monad.Error.Lens (throwing)
+import           Control.Monad.Except     (MonadError)
+import           Data.Bool                (bool)
+import           Data.Generics.Product    (field)
+import qualified Data.List.NonEmpty       as NEL
+import qualified Data.Map                 as Map
+import           Data.Random.List         (shuffle)
+import           Data.RVar                (MonadRandom, sampleRVar)
+import qualified Data.Set                 as Set
+import           Data.Text                (Text)
 
 import Game.Dissidence.GameState.Internal
 
@@ -50,28 +56,29 @@ toGameStateType = \case
 -- store and replay a little more to recreate the view of the world. The idea is that
 -- the GameStateInternalEvents get serialised
 inputEvent
-  :: (MonadError GameStateInputError m, MonadRandom m)
+  :: (MonadError e m, MonadRandom m, AsGameStateInputError e)
   => GameState
+  -> PlayerId
   -> GameStateInputEvent
   -> Maybe GameStateInternalEvent
   -> m (GameState, Maybe GameStateInternalEvent, Maybe GameStateOutputEvent)
-inputEvent gs ev iEvMay = case gs of
+inputEvent gs pId ev iEvMay = case gs of
   WaitingForPlayers o ps -> case ev of
-    AddPlayer pId ->
+    AddPlayer ->
       if Set.member pId ps || o == pId then pure (gs, Nothing, Nothing)
-      else if Set.size ps >= 9 then throwError GameIsFull
+      else if Set.size ps >= 9 then throwing _GameIsFull ()
       else pure (WaitingForPlayers o (Set.insert pId ps), Nothing, Just $ PlayerAdded pId)
 
-    RemovePlayer  pId ->
-      if o == pId then throwError GameOwnerCannotLeave
+    RemovePlayer ->
+      if o == pId then throwing _GameOwnerCannotLeave ()
       else pure (WaitingForPlayers o (Set.delete pId ps), Nothing, Just $ PlayerRemoved pId)
 
-    StartGame pId ->
-      if o /= pId then throwError OwnerMustStartGame
+    StartGame ->
+      if o /= pId then throwing _OwnerMustStartGame ()
       else
         let allPlayersSet = Set.insert o ps
         in case (playersCount . Set.size $ allPlayersSet) of
-          Nothing -> throwError NotEnoughPlayers
+          Nothing -> throwing _NotEnoughPlayers ()
           Just pc -> do
             rolesMap <- case iEvMay of
               Just (AssignRoles rolesMap) -> pure rolesMap
@@ -87,25 +94,25 @@ inputEvent gs ev iEvMay = case gs of
               , Just $ PregameStarted rolesMap
               )
 
-    AbortGame pId -> abortGame pId
+    AbortGame -> abortGame
     _ -> invalidAction
 
   Pregame roles confirms -> case ev of
-    ConfirmOk pId ->
-      if not (Map.member pId roles) then throwError $ PlayerNotInGame pId
+    ConfirmOk ->
+      if not (Map.member pId roles) then throwing _PlayerNotInGame pId
       else
         let newConfirms = Map.insert pId True confirms
         in
           if (Map.size roles > length (filter id (Map.elems newConfirms)))
           then pure (Pregame roles newConfirms, Nothing, Just PlayerConfirmed)
           else case (playersCount (Map.size newConfirms)) of
-            Nothing   -> throwError GameStateTerminallyInvalid
+            Nothing   -> throwing _GameStateTerminallyInvalid ()
             (Just pc) -> do
               order <- case iEvMay of
                 (Just (ShufflePlayerOrder lq@(LeadershipQueue nel))) ->
                   if (NEL.toList nel) == (Map.keys confirms)
                   then pure lq
-                  else throwError GameStateTerminallyInvalid
+                  else throwing _GameStateTerminallyInvalid ()
                 _ ->
                   LeadershipQueue . NEL.fromList <$> sampleRVar (shuffle $ Map.keys newConfirms)
 
@@ -116,33 +123,33 @@ inputEvent gs ev iEvMay = case gs of
                 , Just $ RoundsCommenced roundsState
                 )
 
-    AbortGame pId -> abortGame pId
+    AbortGame -> abortGame
     _ -> invalidAction
 
   Rounds rs -> case (rs ^.roundsCurrentProposal) of
     NoProposal -> case ev of
-      ProposeTeam pId ps ->
-        if pId /= (rs ^.roundsCurrentLeader) then throwError PlayerIsNotLeader
+      ProposeTeam ps ->
+        if pId /= (rs ^.roundsCurrentLeader) then throwing _PlayerIsNotLeader ()
         else if (Set.size ps) /= rs ^.roundsCurrentShape.field @"roundShapeTeamSize".to fromIntegral
-          then throwError IncorrectTeamSize
+          then throwing _IncorrectTeamSize ()
           else pure
             ( Rounds (rs & roundsCurrentProposal .~ Proposed ps Map.empty)
             , Nothing
             , Just $ TeamProposed ps
             )
-      AbortGame pId -> abortGame pId
+      AbortGame -> abortGame
       _ -> invalidAction
 
     Proposed ps votes -> case ev of
-      VoteOnTeam pId pass ->
+      VoteOnTeam pass ->
         let teamSansLeader = Map.delete (rs ^.roundsCurrentLeader) (rs ^. field @"roundsRoles")
             newVotes = Map.insert pId pass votes
             passVotes = fromIntegral . length . filter id . Map.elems $ newVotes
             failVotes = fromIntegral . length . filter not . Map.elems $ newVotes
         in
-          if pId == rs ^.roundsCurrentLeader then throwError LeaderCannotVoteOnTeam
-          else if not (Map.member pId teamSansLeader) then throwError $ PlayerNotInGame pId
-          else if (Map.member pId votes) then throwError DuplicateVote
+          if pId == rs ^.roundsCurrentLeader then throwing _LeaderCannotVoteOnTeam ()
+          else if not (Map.member pId teamSansLeader) then throwing _PlayerNotInGame pId
+          else if (Map.member pId votes) then throwing _DuplicateVote ()
           else if (Map.size newVotes < Map.size teamSansLeader)
             then pure (Rounds (rs & roundsCurrentProposal .~ Proposed ps newVotes), Nothing, Nothing)
             else
@@ -174,13 +181,13 @@ inputEvent gs ev iEvMay = case gs of
                       , Just $ TeamRejected passVotes (NEL.head . unLeadershipQueue $ newQueue) -- TODO: This is iffy that we don't send the whole queue
                       )
 
-      AbortGame pId -> abortGame pId
+      AbortGame -> abortGame
       _ -> invalidAction
 
     Approved ps votes -> case ev of
-      VoteOnProject pId pass ->
-        if not (Set.member pId ps) then throwError PlayerNotInTeam
-        else if Map.member pId votes then throwError DuplicateVote
+      VoteOnProject pass ->
+        if not (Set.member pId ps) then throwing _PlayerNotInTeam ()
+        else if Map.member pId votes then throwing _DuplicateVote ()
         else
           let newVotes    = Map.insert pId pass votes
               fails       = fromIntegral . length . filter not . Map.elems $ newVotes
@@ -204,7 +211,7 @@ inputEvent gs ev iEvMay = case gs of
                 else
                   let nextShape = rs ^? field @"roundsFuture"._head
                   in case nextShape of
-                    Nothing -> throwError GameStateTerminallyInvalid
+                    Nothing -> throwing _GameStateTerminallyInvalid ()
                     Just s  -> pure
                       ( Rounds $ rs
                         & field @"roundsHistoric" .~ histRounds
@@ -214,13 +221,13 @@ inputEvent gs ev iEvMay = case gs of
                       , Just $ NextRound (not failed) fails
                       )
 
-      AbortGame pId          -> abortGame pId
-      _                      -> invalidAction
+      AbortGame -> abortGame
+      _         -> invalidAction
 
   FiringRound roles hist -> case ev of
-    FirePlayer pId targetId ->
+    FirePlayer targetId ->
       if (roles ^? ix pId) /= Just (SneakySideEffects (Just MiddleManager))
-        then throwError PlayerNotManager
+        then throwing _PlayerNotManager ()
       else if (roles ^? ix targetId) /= Just (CompositionalCrusaders (Just FPExpert))
         then pure (Complete roles CrusadersWin hist, Nothing, Just $ GameEnded roles CrusadersWin)
       else pure
@@ -229,15 +236,15 @@ inputEvent gs ev iEvMay = case gs of
         , Just $ GameEnded roles (SideEffectsWin FPExpertFired)
         )
 
-    AbortGame pId           -> abortGame pId
-    _                       -> invalidAction
+    AbortGame            -> abortGame
+    _                    -> invalidAction
 
   Complete _ _ _ -> invalidAction
   Aborted _ -> invalidAction
 
   where
-    abortGame pId = pure (Aborted pId, Nothing, Just $ GameAborted pId)
-    invalidAction = throwError InvalidActionForGameState
+    abortGame = pure (Aborted pId, Nothing, Just $ GameAborted pId)
+    invalidAction = throwing _InvalidActionForGameState ()
 
 newGame :: PlayerId -> GameState
 newGame owner = WaitingForPlayers owner Set.empty

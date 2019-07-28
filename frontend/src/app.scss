@@ -35,6 +35,8 @@
 	src: url("./fonts/Anonymous_Pro/AnonymousPro-Bold.ttf") format("ttf");
 }
 
+$small-screen: 1024px;
+
 $mono-family: "Anonymous_Pro", monospace;
 $sans-serif-family: "Lora", sans-serif;
 
@@ -50,9 +52,6 @@ $strong-fg: #eb3263;
 
 h1, h2, h3, h4, h5 {
   font-family: "Anonymous_Pro", monospace;
-}
-
-h1 {
   color: $light-fg;
 }
 
@@ -116,8 +115,23 @@ input {
   @include focus-border();
 }
 
+a {
+  color: $light-fg;
+  &:hover {
+    color: $highlight;
+  }
+  &:visited {
+    color: $light-fg;
+  }
+}
+
+.login-alternative {
+  font-size: 0.9em;
+  font-style: italic;
+}
+
 .login-box {
-  width: 20em;
+  width: 25em;
   margin: auto;
   padding: 1em;
   input {
@@ -168,3 +182,26 @@ input {
   }
 }
 
+.game-page {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  .game-state {
+    @media screen and (min-width: $small-screen) {
+      flex-grow: 2;
+    }
+    @media screen and (max-width: $small-screen) {
+      width: 100%;
+    }
+  }
+  .chatbox {
+    @media screen and (max-width: $small-screen) {
+      height: 10em;
+    }
+  }
+  .chatbox-container {
+    @media screen and (max-width: $small-screen) {
+      width: 100%;
+    }
+  }
+}

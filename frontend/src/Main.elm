@@ -25,7 +25,7 @@ import Url.Parser
 import Utils
 
 
-main : Program (Maybe Session.User) Model Msg
+main : Program (Maybe Session.Player) Model Msg
 main =
     Browser.application
         { init = init
@@ -61,80 +61,94 @@ type Msg
 
 type alias Model =
     { key : Nav.Key -- Key has to be in this spot for elm-hot to be happy. :)
-    , user : Maybe Session.User
+    , player : Maybe Session.Player
     , page : Maybe PageModel
     }
 
 
-init : Maybe Session.User -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
-init user url key =
-    initPage key user url
+init : Maybe Session.Player -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init player url key =
+    initPage key player url
 
 
-initPage : Nav.Key -> Maybe Session.User -> Url.Url -> ( Model, Cmd Msg )
-initPage key user url =
+initPage : Nav.Key -> Maybe Session.Player -> Url.Url -> ( Model, Cmd Msg )
+initPage key player url =
     let
         wrapInit : (a -> PageModel) -> (b -> PageMsg) -> ( a, Cmd (Page.SubMsg b) ) -> ( Model, Cmd Msg )
         wrapInit wrapModel wrapMsg ( m, c ) =
-            ( { key = key, user = user, page = Just (wrapModel m) }, Cmd.map (liftSubMsg wrapMsg) c )
+            ( { key = key, player = player, page = Just (wrapModel m) }, Cmd.map (liftSubMsg wrapMsg) c )
 
         routeMay =
             Url.Parser.parse Route.parser url
 
         redirect r =
-            ( { key = key, user = user, page = Nothing }, Route.pushRoute key r )
+            ( { key = key, player = player, page = Nothing }, Route.pushRoute key r )
 
-        requireUser f =
-            Utils.maybe (redirect Route.Login) f user
+        requirePlayer f =
+            Utils.maybe (redirect Route.Login) f player
     in
     case routeMay of
         Nothing ->
             redirect Route.Login
 
         Just Route.Login ->
-            wrapInit Login Login (Page.Login.init key user)
+            wrapInit Login Login (Page.Login.init key player)
 
         Just Route.Register ->
-            wrapInit Register Register (Page.Register.init key user)
+            wrapInit Register Register (Page.Register.init key player)
 
         Just Route.Lobby ->
-            requireUser (\u -> wrapInit Lobby Lobby (Page.Lobby.init key u))
+            requirePlayer (\p -> wrapInit Lobby Lobby (Page.Lobby.init key p))
 
         Just (Route.Game gId) ->
-            requireUser (\u -> wrapInit Game Game (Page.Game.init key u gId))
+            requirePlayer (\p -> wrapInit Game Game (Page.Game.init key p gId))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update action model =
     case action of
-        UrlRequest _ ->
-            ( model, Cmd.none )
+        UrlRequest urlReq ->
+            case urlReq of
+                Browser.Internal url ->
+                    ( model
+                    , Nav.pushUrl model.key (Url.toString url)
+                    )
+
+                Browser.External url ->
+                    ( model
+                    , Nav.load url
+                    )
 
         SetUrl u ->
-            initPage model.key model.user u
+            initPage model.key model.player u
 
         HandleParentMsg m ->
             case m of
-                Page.SetUser r u ->
-                    ( { model | user = u }, Route.pushRoute model.key r )
+                Page.SetPlayer r p ->
+                    ( { model | player = p }, Route.pushRoute model.key r )
+
+                Page.Logout ->
+                    ( { model | player = Nothing }
+                    , Cmd.batch [ Ports.putPlayerSession Nothing, Route.pushRoute model.key Route.Login ]
+                    )
 
         HandlePageMsg pm ->
             let
-                requireUser f =
-                    Utils.maybe ( model, Route.pushRoute model.key Route.Login ) f model.user
+                requirePlayer f =
+                    Utils.maybe ( model, Route.pushRoute model.key Route.Login ) f model.player
             in
             case ( pm, model.page ) of
                 ( Login subMsg, Just (Login subModel) ) ->
-                    Page.Login.update model.key model.user subMsg subModel |> updateWith Login Login model
+                    Page.Login.update model.key model.player subMsg subModel |> updateWith Login Login model
 
                 ( Register subMsg, Just (Register subModel) ) ->
-                    Page.Register.update model.key model.user subMsg subModel |> updateWith Register Register model
+                    Page.Register.update model.key model.player subMsg subModel |> updateWith Register Register model
 
                 ( Lobby subMsg, Just (Lobby subModel) ) ->
-                    requireUser (\u -> Page.Lobby.update model.key u subMsg subModel |> updateWith Lobby Lobby model)
+                    requirePlayer (\p -> Page.Lobby.update model.key p subMsg subModel |> updateWith Lobby Lobby model)
 
                 ( Game subMsg, Just (Game subModel) ) ->
-                    requireUser (\u -> Page.Game.update model.key u subMsg subModel |> updateWith Game Game model)
+                    requirePlayer (\p -> Page.Game.update model.key p subMsg subModel |> updateWith Game Game model)
 
                 ( _, _ ) ->
                     ( model, Cmd.none )
@@ -153,24 +167,24 @@ updateWith wrapModel wrapMsg model ( subModel, subCmd ) =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     let
-        requireUser f =
-            Utils.maybe Sub.none f model.user
+        requirePlayer f =
+            Utils.maybe Sub.none f model.player
     in
     case model.page of
         Nothing ->
             Sub.none
 
         Just (Login sm) ->
-            Sub.map (liftSubMsg Login) (Page.Login.subscriptions model.user sm)
+            Sub.map (liftSubMsg Login) (Page.Login.subscriptions model.player sm)
 
         Just (Register sm) ->
-            Sub.map (liftSubMsg Register) (Page.Register.subscriptions model.user sm)
+            Sub.map (liftSubMsg Register) (Page.Register.subscriptions model.player sm)
 
         Just (Lobby sm) ->
-            requireUser (\u -> Sub.map (liftSubMsg Lobby) (Page.Lobby.subscriptions u sm))
+            requirePlayer (\p -> Sub.map (liftSubMsg Lobby) (Page.Lobby.subscriptions p sm))
 
         Just (Game sm) ->
-            requireUser (\u -> Sub.map (liftSubMsg Game) (Page.Game.subscriptions u sm))
+            requirePlayer (\p -> Sub.map (liftSubMsg Game) (Page.Game.subscriptions p sm))
 
 
 view : Model -> Browser.Document Msg
@@ -179,24 +193,24 @@ view model =
         blankDoc =
             { title = "Dissidence: Compositional Crusaders", body = [] }
 
-        requireUser f =
-            Utils.maybe blankDoc f model.user
+        requirePlayer f =
+            Utils.maybe blankDoc f model.player
     in
     case model.page of
         Nothing ->
             blankDoc
 
         Just (Login sm) ->
-            mapDocument (wrapPageMsg Login) (Page.Login.view model.user sm)
+            mapDocument (wrapPageMsg Login) (Page.Login.view model.player sm)
 
         Just (Register sm) ->
             mapDocument (wrapPageMsg Register) (Page.Register.view sm)
 
         Just (Lobby sm) ->
-            mapDocument (wrapPageMsg Lobby) (Page.Lobby.view sm)
+            requirePlayer (\p -> mapDocument (liftSubMsg Lobby) (Page.Lobby.view p sm))
 
         Just (Game sm) ->
-            requireUser (\u -> mapDocument (wrapPageMsg Game) (Page.Game.view u sm))
+            requirePlayer (\p -> mapDocument (liftSubMsg Game) (Page.Game.view p sm))
 
 
 mapDocument : (subMsg -> Msg) -> Browser.Document subMsg -> Browser.Document Msg
