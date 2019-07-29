@@ -114,8 +114,6 @@ main =
     , DefineElm (Proxy :: Proxy ChatLine)
     , DefineElm (Proxy :: Proxy NewChatLine)
     , DefineElm (Proxy :: Proxy PlayerId)
-    , DefineElm (Proxy :: Proxy CrusaderRole)
-    , DefineElm (Proxy :: Proxy SideEffectRole)
     , DefineElm (Proxy :: Proxy Role)
     , DefineElm (Proxy :: Proxy LeadershipQueue)
     , DefineElm (Proxy :: Proxy SideEffectWinCondition)

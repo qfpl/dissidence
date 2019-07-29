@@ -3,6 +3,7 @@ module Page.Game exposing (Model, Msg, init, subscriptions, update, view)
 import Browser
 import Browser.Dom as Dom
 import Browser.Navigation as Nav
+import Dict
 import Generated.Api as BE
 import Html as H
 import Html.Attributes as HA
@@ -210,6 +211,9 @@ view player model =
                             BE.WaitingForPlayers o ps ->
                                 waitingForPlayers player o ps
 
+                            BE.Pregame roles _ ->
+                                pregame player roles
+
                             _ ->
                                 H.text "IMPLEMENT ME"
                 ]
@@ -260,6 +264,30 @@ waitingForPlayers player owner players =
           else
             H.text ""
         ]
+
+
+pregame : Session.Player -> Dict.Dict BE.PlayerId BE.Role -> H.Html PageMsg
+pregame player roles =
+    H.div [ HA.class "pregame" ]
+        [ H.h2 [] [ H.text "Confirm Roles" ]
+        , H.ul [] (Dict.toList roles |> List.map (\( pId, role ) -> H.li [] [ H.text pId, roleToHtml role ]))
+        ]
+
+
+roleToHtml : BE.Role -> H.Html msg
+roleToHtml r =
+    case r of
+        BE.CompositionalCrusaders False ->
+            H.text "Compositional Crusader"
+
+        BE.CompositionalCrusaders True ->
+            H.text "FP Expert"
+
+        BE.SneakySideEffects False ->
+            H.text "Sneaky Side Effect"
+
+        BE.SneakySideEffects True ->
+            H.text "Middle Manager"
 
 
 chatWarnings : NEL.Nonempty String -> H.Html PageMsg

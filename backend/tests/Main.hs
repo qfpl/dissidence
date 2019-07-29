@@ -82,11 +82,11 @@ waitingForPlayersTests = testGroup "Waiting For Players" $
     , testCase "Owner starts game" $
       -- This is set to our StdGen seed of 1337
       let expectedRoles = Map.fromList . zip (player1 : players) $
-           [ SneakySideEffects (Just MiddleManager)
-           , CompositionalCrusaders Nothing
-           , SneakySideEffects Nothing
-           , CompositionalCrusaders (Just FPExpert)
-           , CompositionalCrusaders Nothing
+           [ SneakySideEffects True
+           , CompositionalCrusaders False
+           , SneakySideEffects False
+           , CompositionalCrusaders True
+           , CompositionalCrusaders False
            ]
       in inputTest
         (WaitingForPlayers player1 (Set.fromList (take 4 players)))
@@ -170,7 +170,7 @@ roundsTests = testGroup "Round" $
     [ testCase "Voting works" $
       inputTest proposedState (natToPId 1) (VoteOnTeam False)
         (Right
-          ( proposedState & _As @"Rounds".roundsCurrentProposal._As @"Proposed"._2._Wrapped. at (natToPId 1) ?~ False
+          ( proposedState & _As @"Rounds".roundsCurrentProposal._As @"Proposed"._2. at (natToPId 1) ?~ False
           , Nothing
           , Nothing
           ))
@@ -185,7 +185,7 @@ roundsTests = testGroup "Round" $
       in
         [ testCase "Success moves to project vote" $
           let votes = (1,True) :| [(3,True),(4,True),(5,True)]
-              votesMap = PlayersMap . Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
+              votesMap = Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
           in inputsTest proposedState (voteInputs votes) $ Right
             ( approvedState & _As @"Rounds".roundsCurrentVotes <>~
               [TeamVotingResult (natToPId 2) decentRound1Proposal votesMap]
@@ -194,11 +194,11 @@ roundsTests = testGroup "Round" $
             )
         , testCase "Team Vote Failure cycles leader" $
           let votes = (1,False) :| [(3,False),(4,True),(5,True)]
-              votesMap = PlayersMap . Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
+              votesMap = Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
           in inputsTest proposedState (voteInputs votes) $ Right
             ( proposedState
               & _As @"Rounds".roundsCurrentProposal .~ NoProposal
-              & _As @"Rounds".field @"roundsLeadershipQueue" . _Wrapped .~ (natToPId <$> 4 :| [5,1,3,2])
+              & _As @"Rounds".field @"roundsLeadershipQueue"._Wrapped .~ (natToPId <$> 4 :| [5,1,3,2])
               & _As @"Rounds".roundsCurrentVotes <>~
                 [TeamVotingResult (natToPId 2) decentRound1Proposal votesMap]
             , Nothing
@@ -206,8 +206,8 @@ roundsTests = testGroup "Round" $
             )
         , testCase "Fifth failure means Side-effects win" $
           let votes = (1,False) :| [(3,False),(4,True),(5,True)]
-              votesMap = PlayersMap . Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
-              votesFailMap = PlayersMap . Map.fromList . fmap (\pId -> (natToPId pId, False))
+              votesMap = Map.fromList . NEL.toList . fmap (_1 %~ natToPId) $ votes
+              votesFailMap = Map.fromList . fmap (\pId -> (natToPId pId, False))
           in inputsTest
             (proposedState & _As @"Rounds" . roundsCurrentVotes .~
               [ TeamVotingResult (natToPId 4) decentRound1Proposal (votesFailMap [1,2,3,5])
@@ -236,7 +236,7 @@ roundsTests = testGroup "Round" $
   , testGroup "Project Voting"
     [ testCase "Voting works" $
       inputTest approvedState (natToPId 4) (VoteOnProject True) (Right
-        ( approvedState &_As @"Rounds".roundsCurrentProposal._As @"Approved"._2._Wrapped.at (natToPId 4) ?~ True
+        ( approvedState &_As @"Rounds".roundsCurrentProposal._As @"Approved"._2.at (natToPId 4) ?~ True
         , Nothing
         , Nothing
         ))
@@ -471,15 +471,15 @@ everyInput =
 decentRound1Proposal :: Set (PlayerId)
 decentRound1Proposal = pIdSet [4, 1]
 proposedState :: GameState
-proposedState = Rounds (roundsState & roundsCurrentProposal .~ Proposed decentRound1Proposal (PlayersMap Map.empty))
+proposedState = Rounds (roundsState & roundsCurrentProposal .~ Proposed decentRound1Proposal Map.empty)
 approvedState :: GameState
-approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRound1Proposal (PlayersMap Map.empty))
+approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRound1Proposal Map.empty)
 
 finalRound :: GameState
 finalRound = Rounds $ RoundsState
   roles
   playerOrder
-  (CurrentRoundState (RoundShape 3 False) (Approved (pIdSet [1..3]) (PlayersMap Map.empty)) [])
+  (CurrentRoundState (RoundShape 3 False) (Approved (pIdSet [1..3]) Map.empty) [])
   []
   [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)
   , HistoricRoundState (RoundShape 3 False) Nothing [] (RoundFailure 0)

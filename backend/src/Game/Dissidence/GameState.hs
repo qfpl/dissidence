@@ -19,8 +19,6 @@ module Game.Dissidence.GameState
   , SideEffectWinCondition(..)
   , LeadershipQueue(..)
   , Role(..)
-  , SideEffectRole(..)
-  , CrusaderRole(..)
   , HistoricRoundState(..)
   , CurrentRoundState(..)
   , TeamVotingResult(..)
@@ -226,9 +224,9 @@ inputEvent gs pId ev iEvMay = case gs of
 
   FiringRound roles hist -> case ev of
     FirePlayer targetId ->
-      if (roles ^? ix pId) /= Just (SneakySideEffects (Just MiddleManager))
+      if (roles ^? ix pId) /= Just (SneakySideEffects True)
         then throwing _PlayerNotManager ()
-      else if (roles ^? ix targetId) /= Just (CompositionalCrusaders (Just FPExpert))
+      else if (roles ^? ix targetId) /= Just (CompositionalCrusaders True)
         then pure (Complete roles CrusadersWin hist, Nothing, Just $ GameEnded roles CrusadersWin)
       else pure
         ( Complete roles (SideEffectsWin FPExpertFired) hist

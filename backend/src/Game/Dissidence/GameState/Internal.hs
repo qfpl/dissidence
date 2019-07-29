@@ -29,16 +29,13 @@ import Game.Dissidence.AesonOptions (ourAesonOptions)
 newtype PlayerId = PlayerId { unPlayerId :: Text } deriving (Eq, Ord, Show, Generic, ToJSONKey, FromJSONKey)
 deriveBoth ourAesonOptions ''PlayerId
 
-data CrusaderRole = FPExpert deriving (Eq, Ord, Show, Generic)
-deriveBoth ourAesonOptions ''CrusaderRole
-data SideEffectRole = MiddleManager deriving (Eq, Ord, Show, Generic)
-deriveBoth ourAesonOptions ''SideEffectRole
-
 type PlayersMap a = Map PlayerId a
 
+-- NOTE: There is a bug in aeson where if you have allNullaryToString and only one constructor, then
+-- you get [] serialised in the JSON. So lets just use a bool to represent the special role.
 data Role
-   = CompositionalCrusaders (Maybe CrusaderRole)
-   | SneakySideEffects (Maybe SideEffectRole)
+   = CompositionalCrusaders Bool -- FP Expert if true
+   | SneakySideEffects Bool -- MiddleManager if true
    deriving (Eq, Ord, Show, Generic)
 deriveBoth ourAesonOptions ''Role
 
@@ -231,17 +228,17 @@ playersCountToInt = \case
 
 playersToRoles :: PlayersCount -> [Role]
 playersToRoles Players5 =
-  [ CompositionalCrusaders (Just FPExpert)
-  , SneakySideEffects (Just MiddleManager)
-  , CompositionalCrusaders Nothing
-  , CompositionalCrusaders Nothing
-  , SneakySideEffects Nothing
+  [ CompositionalCrusaders True
+  , SneakySideEffects True
+  , CompositionalCrusaders False
+  , CompositionalCrusaders False
+  , SneakySideEffects False
   ]
-playersToRoles Players6 = CompositionalCrusaders Nothing : playersToRoles Players5
-playersToRoles Players7 = SneakySideEffects Nothing : playersToRoles Players6
-playersToRoles Players8 = CompositionalCrusaders Nothing : playersToRoles Players7
-playersToRoles Players9 = CompositionalCrusaders Nothing : playersToRoles Players8
-playersToRoles Players10 = SneakySideEffects Nothing : playersToRoles Players9
+playersToRoles Players6 = CompositionalCrusaders False : playersToRoles Players5
+playersToRoles Players7 = SneakySideEffects False : playersToRoles Players6
+playersToRoles Players8 = CompositionalCrusaders False : playersToRoles Players7
+playersToRoles Players9 = CompositionalCrusaders False : playersToRoles Players8
+playersToRoles Players10 = SneakySideEffects False : playersToRoles Players9
 
 initialRoundsState :: (PlayersMap Role) -> LeadershipQueue -> PlayersCount -> RoundsState
 initialRoundsState roles order = \case

@@ -1,6 +1,6 @@
-module Game.Dissidence.AesonOptions where
+module Game.Dissidence.AesonOptions (ourAesonOptions, unwrapUnaryRecords) where
 
-import Data.Aeson (Options, defaultOptions, unwrapUnaryRecords)
+import Data.Aeson (Options, allNullaryToStringTag, defaultOptions, unwrapUnaryRecords)
 
 ourAesonOptions :: Options
-ourAesonOptions = defaultOptions { unwrapUnaryRecords = True }
+ourAesonOptions = defaultOptions { unwrapUnaryRecords = True, allNullaryToStringTag = True }

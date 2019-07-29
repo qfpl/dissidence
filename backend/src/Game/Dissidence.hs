@@ -22,7 +22,6 @@ import           Data.Random.Internal.Source          (MonadRandom (getRandomPri
 import           Data.Text                            (Text)
 import qualified Data.Text.Lazy                       as TL
 import qualified Data.Text.Lazy.Encoding              as TL
-import           Database.SQLite.SimpleErrors.Types   (SQLiteResponse)
 import           GHC.Generics                         (Generic)
 import           Network.Wai.Handler.Warp             (run)
 import           Network.Wai.Middleware.Cors          (cors, corsOrigins, corsRequestHeaders,
@@ -35,8 +34,8 @@ import           Servant.Elm                          (deriveBoth)
 import Game.Dissidence.AesonOptions (ourAesonOptions)
 import Game.Dissidence.Config       (load)
 import Game.Dissidence.Db           (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
-                                     DbConstraints, DbError (..), DbGameState, DbPlayer, GameId (..),
-                                     JoinableGame, NewChatLine (..), NewDbGameState (..),
+                                     DbConstraints, DbError (..), DbGameState, DbLogicError (..), DbPlayer,
+                                     GameId (..), JoinableGame, NewChatLine (..), NewDbGameState (..),
                                      NewDbGameStateEvent (..), Posix, checkLogin, findPlayer, initDb,
                                      insertChatLine, insertGameState, insertGameStateEvent, insertPlayer,
                                      listGameStateEvents, listJoinableGames, selectChatLines, selectGameState,
@@ -256,7 +255,10 @@ appHandler :: Env -> AppM a -> Handler a
 appHandler e prog = do
   res <- runDbContext e prog
   case res of
-    Left (AppDbError err)            -> throwError $ err500 { errBody = "Database error: " <> LC8.pack (show err) }
+    Left (AppDbError (DbErrorSQLiteResponse err)) -> throwError $ err500 { errBody = "Database error: " <> LC8.pack (show err) }
+    Left (AppDbError (DbErrorDbLogicError err)) -> case err of
+      (PlayerAlreadyExists _pId) -> throwError err400 { errBody = "Player already exists" }
+      (GameDoesntExist _gId)     -> throwError err404
     Left AppLoginFailed              -> throwError err403
     Left AppRequirePlayer            -> throwError err401
     Left AppForbidden                -> throwError err403
@@ -271,7 +273,7 @@ runApp = do
   putStrLn $ "Opening/Initialising sqlite database " <> (e ^.envDbPath)
   initRes <- runDbContext e initDb
   case initRes of
-    Left (err ::SQLiteResponse) -> error $ "DB Failed to initialise: " <> (show err)
+    Left (err :: DbError) -> error $ "DB Failed to initialise: " <> (show err)
     Right _  -> do
       let port = c ^. field @"port" . to fromIntegral
       putStrLn $ "Starting server on port " <> (show port)

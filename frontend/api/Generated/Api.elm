@@ -136,45 +136,15 @@ jsonEncPlayerId  val = Json.Encode.string val
 
 
 
-type CrusaderRole  =
-    FPExpert 
-
-jsonDecCrusaderRole : Json.Decode.Decoder ( CrusaderRole )
-jsonDecCrusaderRole = 
-    let jsonDecDictCrusaderRole = Dict.fromList [("FPExpert", FPExpert)]
-    in  decodeSumUnaries "CrusaderRole" jsonDecDictCrusaderRole
-
-jsonEncCrusaderRole : CrusaderRole -> Value
-jsonEncCrusaderRole  val =
-    case val of
-        FPExpert -> Json.Encode.string "FPExpert"
-
-
-
-type SideEffectRole  =
-    MiddleManager 
-
-jsonDecSideEffectRole : Json.Decode.Decoder ( SideEffectRole )
-jsonDecSideEffectRole = 
-    let jsonDecDictSideEffectRole = Dict.fromList [("MiddleManager", MiddleManager)]
-    in  decodeSumUnaries "SideEffectRole" jsonDecDictSideEffectRole
-
-jsonEncSideEffectRole : SideEffectRole -> Value
-jsonEncSideEffectRole  val =
-    case val of
-        MiddleManager -> Json.Encode.string "MiddleManager"
-
-
-
 type Role  =
-    CompositionalCrusaders (Maybe CrusaderRole)
-    | SneakySideEffects (Maybe SideEffectRole)
+    CompositionalCrusaders Bool
+    | SneakySideEffects Bool
 
 jsonDecRole : Json.Decode.Decoder ( Role )
 jsonDecRole =
     let jsonDecDictRole = Dict.fromList
-            [ ("CompositionalCrusaders", Json.Decode.lazy (\_ -> Json.Decode.map CompositionalCrusaders (Json.Decode.maybe (jsonDecCrusaderRole))))
-            , ("SneakySideEffects", Json.Decode.lazy (\_ -> Json.Decode.map SneakySideEffects (Json.Decode.maybe (jsonDecSideEffectRole))))
+            [ ("CompositionalCrusaders", Json.Decode.lazy (\_ -> Json.Decode.map CompositionalCrusaders (Json.Decode.bool)))
+            , ("SneakySideEffects", Json.Decode.lazy (\_ -> Json.Decode.map SneakySideEffects (Json.Decode.bool)))
             ]
         jsonDecObjectSetRole = Set.fromList []
     in  decodeSumTaggedObject "Role" "tag" "contents" jsonDecDictRole jsonDecObjectSetRole
@@ -182,8 +152,8 @@ jsonDecRole =
 jsonEncRole : Role -> Value
 jsonEncRole  val =
     let keyval v = case v of
-                    CompositionalCrusaders v1 -> ("CompositionalCrusaders", encodeValue ((maybeEncode (jsonEncCrusaderRole)) v1))
-                    SneakySideEffects v1 -> ("SneakySideEffects", encodeValue ((maybeEncode (jsonEncSideEffectRole)) v1))
+                    CompositionalCrusaders v1 -> ("CompositionalCrusaders", encodeValue (Json.Encode.bool v1))
+                    SneakySideEffects v1 -> ("SneakySideEffects", encodeValue (Json.Encode.bool v1))
     in encodeSumTaggedObject "tag" "contents" keyval val
 
 

@@ -28,6 +28,7 @@ module Game.Dissidence.Db
   , HasConnection(..)
   , GameId(..)
   , DbError(..)
+  , DbLogicError(..)
   , Posix
   ) where
 
@@ -45,7 +46,7 @@ import           Crypto.PasswordStore               (makePassword, verifyPasswor
 import           Data.Aeson                         (FromJSON, ToJSON, eitherDecode, encode)
 import           Data.Foldable                      (traverse_)
 import qualified Data.Generics.Product              as GP
-import           Data.Maybe                         (fromMaybe, isNothing, mapMaybe)
+import           Data.Maybe                         (fromMaybe, isJust, isNothing, mapMaybe)
 import qualified Data.Set                           as Set
 import           Data.Text                          (Text)
 import           Data.Text.Encoding                 (decodeUtf8, encodeUtf8)
@@ -247,7 +248,7 @@ checkLogin (DbPlayer pId p) = do
   pure $ maybe False (verifyPassword (encodeUtf8 p) . (^.GP.field @"dbPlayerPassword".to encodeUtf8)) pMay
 
 initDb ::
-  SqLiteConstraints e r m
+  DbConstraints e r m
   => m ()
 initDb =
   let
@@ -277,7 +278,11 @@ initDb =
       \( id TEXT NOT NULL PRIMARY KEY \
       \, password TEXT NOT NULL\
       \)"
-  in
+    safeInsertPlayer pt = do
+      let pId = PlayerId pt
+      pMay <- findPlayer pId
+      unless (isJust pMay) $ insertPlayer (DbPlayer pId "butts")
+  in do
     withConnIO $ \conn ->
       traverse_ (execute_ conn)
         [ enableForeignKeys
@@ -286,6 +291,12 @@ initDb =
         , qChatLines
         , qPlayer
         ]
+    safeInsertPlayer "ben1"
+    safeInsertPlayer "ben2"
+    safeInsertPlayer "ben3"
+    safeInsertPlayer "ben4"
+    safeInsertPlayer "ben5"
+    pure ()
 
 insert ::
   ( SqLiteConstraints e r m
