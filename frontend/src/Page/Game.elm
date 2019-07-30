@@ -27,6 +27,7 @@ type Msg
     | Tick Time.Posix
     | SubmitNewLine
     | StartGame
+    | ConfirmRole
     | HandleNewLineResp (Result Http.Error ())
     | HandleEventsResp (Result Http.Error (List BE.GameEvent))
     | HandleGetGameResp (Result Http.Error BE.DbGameState)
@@ -152,6 +153,9 @@ update key player msg model =
             -- TODO: Some kind of in progress / error display feedback
             ( model, BE.postApiGamesByGameIdEvents player.token model.gameId (BE.NewGameEventInput BE.StartGame) (Page.wrapChildMsg HandleNewEventResp) )
 
+        ConfirmRole ->
+            ( model, BE.postApiGamesByGameIdEvents player.token model.gameId (BE.NewGameEventInput BE.ConfirmOk) (Page.wrapChildMsg HandleNewEventResp) )
+
 
 jumpToChatBottom : Cmd PageMsg
 jumpToChatBottom =
@@ -271,6 +275,7 @@ pregame player roles =
     H.div [ HA.class "pregame" ]
         [ H.h2 [] [ H.text "Confirm Roles" ]
         , H.ul [] (Dict.toList roles |> List.map (\( pId, role ) -> H.li [] [ H.text pId, roleToHtml role ]))
+        , H.button [ HE.onClick (Page.ChildMsg ConfirmRole) ] [ H.text "confirm" ]
         ]
 
 
@@ -305,4 +310,55 @@ chatLineView ge =
                 ]
 
         BE.GameEventOutput oe ->
-            H.p [] [ H.text "OUTPUTEVENT" ]
+            H.p [ HA.class "chat-event" ]
+                (case oe of
+                    BE.PlayerAdded pId ->
+                        [ H.text ("Player Joined: " ++ pId) ]
+
+                    BE.PlayerRemoved pId ->
+                        [ H.text ("Player Quit: " ++ pId) ]
+
+                    BE.PregameStarted _ ->
+                        [ H.text "Pregame Commenced." ]
+
+                    BE.PlayerConfirmed ->
+                        -- TODO: have a count of folk remaining
+                        [ H.text "Player Confirmed Roles" ]
+
+                    BE.RoundsCommenced rs ->
+                        [ H.text ("Round 1 Started! " ++ rs.roundsCurrentLeader ++ " is the project leader!") ]
+
+                    -- TODO: Tell leader
+                    BE.TeamProposed pIds ->
+                        [ H.text ("Team proposed: " ++ String.join "," pIds) ]
+
+                    BE.TeamApproved votes ->
+                        [ H.text ("Team approved with " ++ String.fromInt votes ++ " votes!") ]
+
+                    BE.TeamRejected votes newLeader ->
+                        [ H.text
+                            ("Team rejected with only "
+                                ++ String.fromInt votes
+                                ++ " votes! Project Leader is now "
+                                ++ newLeader
+                            )
+                        ]
+
+                    BE.NextRound projectSucceeded failVotes ->
+                        [ H.text "FP Project "
+                        , H.text
+                            (if projectSucceeded then
+                                "successful"
+
+                             else
+                                "failed"
+                            )
+                        , H.text ("! (" ++ String.fromInt failVotes ++ " fail votes)")
+                        ]
+
+                    BE.ThreeSuccessfulProjects ->
+                        [ H.text "FP Project successful! Crusaders have three wins. Middle manager has a chance to fire the FP Expert and claim victory!" ]
+
+                    _ ->
+                        [ H.text "OUTPUTEVENT" ]
+                )

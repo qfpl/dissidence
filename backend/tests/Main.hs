@@ -198,7 +198,8 @@ roundsTests = testGroup "Round" $
           in inputsTest proposedState (voteInputs votes) $ Right
             ( proposedState
               & _As @"Rounds".roundsCurrentProposal .~ NoProposal
-              & _As @"Rounds".field @"roundsLeadershipQueue"._Wrapped .~ (natToPId <$> 4 :| [5,1,3,2])
+              & _As @"Rounds".field @"roundsCurrentLeader" .~ (natToPId 4)
+              & _As @"Rounds".field @"roundsLeadershipQueue"._Wrapped .~ (natToPId <$> 5 :| [1,3,2,4])
               & _As @"Rounds".roundsCurrentVotes <>~
                 [TeamVotingResult (natToPId 2) decentRound1Proposal votesMap]
             , Nothing
@@ -249,7 +250,7 @@ roundsTests = testGroup "Round" $
       [ testCase "All success makes crusaders win" $
         inputsTest approvedState ((natToPId 1, VoteOnProject True) :| [(natToPId 4, VoteOnProject True)])
           (Right
-            (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
+            (Rounds (RoundsState roles (natToPId 4) (lqueue $ 5 :| [1,3,2,4])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
               [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
               [HistoricRoundState (RoundShape 2 False) (Just decentRound1Proposal) [] (RoundSuccess 0)]
@@ -260,7 +261,7 @@ roundsTests = testGroup "Round" $
       , testCase "1 failure fails project on normal round" $
         inputsTest approvedState ((natToPId 1, VoteOnProject False) :| [(natToPId 4, VoteOnProject True)]) $
           (Right
-            (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
+            (Rounds (RoundsState roles (natToPId 4) (lqueue $ 5 :| [1,3,2,4])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
               [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
               [HistoricRoundState (RoundShape 2 False) (Just decentRound1Proposal) [] (RoundFailure 1)]
@@ -273,7 +274,7 @@ roundsTests = testGroup "Round" $
           (approvedState & _As @"Rounds" . roundsCurrentShape . field @"roundShapeTwoFails" .~ True)
           ((natToPId 1, VoteOnProject False) :| [(natToPId 4, VoteOnProject True)])
           (Right
-            (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
+            (Rounds (RoundsState roles (natToPId 4) (lqueue $ 5 :| [1,3,2,4])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
               [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
               [HistoricRoundState (RoundShape 2 True) (Just decentRound1Proposal) [] (RoundSuccess 1)]
@@ -286,7 +287,7 @@ roundsTests = testGroup "Round" $
           (approvedState & _As @"Rounds" . roundsCurrentShape . field @"roundShapeTwoFails" .~ True)
           ((natToPId 1, VoteOnProject False) :| [(natToPId 4, VoteOnProject False)])
           (Right
-            (Rounds (RoundsState roles (lqueue $ 4 :| [5,1,3,2])
+            (Rounds (RoundsState roles (natToPId 4) (lqueue $ 5 :| [1,3,2,4])
               (CurrentRoundState (RoundShape 3 False) NoProposal [])
               [RoundShape 3 False, RoundShape 2 False, RoundShape 3 False, RoundShape 3 False]
               [HistoricRoundState (RoundShape 2 True) (Just decentRound1Proposal) [] (RoundFailure 2)]
@@ -478,7 +479,8 @@ approvedState = Rounds (roundsState & roundsCurrentProposal .~ Approved decentRo
 finalRound :: GameState
 finalRound = Rounds $ RoundsState
   roles
-  playerOrder
+  (natToPId 2)
+  (lqueue (4 :| [5,1,3,2]))
   (CurrentRoundState (RoundShape 3 False) (Approved (pIdSet [1..3]) Map.empty) [])
   []
   [ HistoricRoundState (RoundShape 2 False) Nothing [] (RoundSuccess 0)

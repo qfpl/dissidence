@@ -146,15 +146,14 @@ jsonDecRole =
             [ ("CompositionalCrusaders", Json.Decode.lazy (\_ -> Json.Decode.map CompositionalCrusaders (Json.Decode.bool)))
             , ("SneakySideEffects", Json.Decode.lazy (\_ -> Json.Decode.map SneakySideEffects (Json.Decode.bool)))
             ]
-        jsonDecObjectSetRole = Set.fromList []
-    in  decodeSumTaggedObject "Role" "tag" "contents" jsonDecDictRole jsonDecObjectSetRole
+    in  decodeSumTwoElemArray  "Role" jsonDecDictRole
 
 jsonEncRole : Role -> Value
 jsonEncRole  val =
     let keyval v = case v of
                     CompositionalCrusaders v1 -> ("CompositionalCrusaders", encodeValue (Json.Encode.bool v1))
                     SneakySideEffects v1 -> ("SneakySideEffects", encodeValue (Json.Encode.bool v1))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -200,8 +199,7 @@ jsonDecEndCondition =
             , ("SideEffectsWin", Json.Decode.lazy (\_ -> Json.Decode.map SideEffectsWin (jsonDecSideEffectWinCondition)))
             , ("GameCancelled", Json.Decode.lazy (\_ -> Json.Decode.succeed GameCancelled))
             ]
-        jsonDecObjectSetEndCondition = Set.fromList []
-    in  decodeSumTaggedObject "EndCondition" "tag" "contents" jsonDecDictEndCondition jsonDecObjectSetEndCondition
+    in  decodeSumTwoElemArray  "EndCondition" jsonDecDictEndCondition
 
 jsonEncEndCondition : EndCondition -> Value
 jsonEncEndCondition  val =
@@ -209,7 +207,7 @@ jsonEncEndCondition  val =
                     CrusadersWin  -> ("CrusadersWin", encodeValue (Json.Encode.list identity []))
                     SideEffectsWin v1 -> ("SideEffectsWin", encodeValue (jsonEncSideEffectWinCondition v1))
                     GameCancelled  -> ("GameCancelled", encodeValue (Json.Encode.list identity []))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -245,8 +243,7 @@ jsonDecProposalState =
             , ("Proposed", Json.Decode.lazy (\_ -> Json.Decode.map2 Proposed (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (jsonDecPlayersMap (Json.Decode.bool)))))
             , ("Approved", Json.Decode.lazy (\_ -> Json.Decode.map2 Approved (Json.Decode.index 0 (Json.Decode.list (jsonDecPlayerId))) (Json.Decode.index 1 (jsonDecPlayersMap (Json.Decode.bool)))))
             ]
-        jsonDecObjectSetProposalState = Set.fromList []
-    in  decodeSumTaggedObject "ProposalState" "tag" "contents" jsonDecDictProposalState jsonDecObjectSetProposalState
+    in  decodeSumTwoElemArray  "ProposalState" jsonDecDictProposalState
 
 jsonEncProposalState : ProposalState -> Value
 jsonEncProposalState  val =
@@ -254,7 +251,7 @@ jsonEncProposalState  val =
                     NoProposal  -> ("NoProposal", encodeValue (Json.Encode.list identity []))
                     Proposed v1 v2 -> ("Proposed", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (jsonEncPlayersMap (Json.Encode.bool)) v2]))
                     Approved v1 v2 -> ("Approved", encodeValue (Json.Encode.list identity [(Json.Encode.list jsonEncPlayerId) v1, (jsonEncPlayersMap (Json.Encode.bool)) v2]))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -293,8 +290,7 @@ jsonDecRoundResult =
             , ("RoundFailure", Json.Decode.lazy (\_ -> Json.Decode.map RoundFailure (Json.Decode.int)))
             , ("RoundNoConsensus", Json.Decode.lazy (\_ -> Json.Decode.succeed RoundNoConsensus))
             ]
-        jsonDecObjectSetRoundResult = Set.fromList []
-    in  decodeSumTaggedObject "RoundResult" "tag" "contents" jsonDecDictRoundResult jsonDecObjectSetRoundResult
+    in  decodeSumTwoElemArray  "RoundResult" jsonDecDictRoundResult
 
 jsonEncRoundResult : RoundResult -> Value
 jsonEncRoundResult  val =
@@ -302,7 +298,7 @@ jsonEncRoundResult  val =
                     RoundSuccess v1 -> ("RoundSuccess", encodeValue (Json.Encode.int v1))
                     RoundFailure v1 -> ("RoundFailure", encodeValue (Json.Encode.int v1))
                     RoundNoConsensus  -> ("RoundNoConsensus", encodeValue (Json.Encode.list identity []))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -353,8 +349,7 @@ jsonDecGameStateInputEvent =
             , ("FirePlayer", Json.Decode.lazy (\_ -> Json.Decode.map FirePlayer (jsonDecPlayerId)))
             , ("AbortGame", Json.Decode.lazy (\_ -> Json.Decode.succeed AbortGame))
             ]
-        jsonDecObjectSetGameStateInputEvent = Set.fromList []
-    in  decodeSumTaggedObject "GameStateInputEvent" "tag" "contents" jsonDecDictGameStateInputEvent jsonDecObjectSetGameStateInputEvent
+    in  decodeSumTwoElemArray  "GameStateInputEvent" jsonDecDictGameStateInputEvent
 
 jsonEncGameStateInputEvent : GameStateInputEvent -> Value
 jsonEncGameStateInputEvent  val =
@@ -368,7 +363,7 @@ jsonEncGameStateInputEvent  val =
                     VoteOnProject v1 -> ("VoteOnProject", encodeValue (Json.Encode.bool v1))
                     FirePlayer v1 -> ("FirePlayer", encodeValue (jsonEncPlayerId v1))
                     AbortGame  -> ("AbortGame", encodeValue (Json.Encode.list identity []))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -406,8 +401,7 @@ jsonDecGameStateOutputEvent =
             , ("GameAborted", Json.Decode.lazy (\_ -> Json.Decode.map GameAborted (jsonDecPlayerId)))
             , ("GameCrashed", Json.Decode.lazy (\_ -> Json.Decode.succeed GameCrashed))
             ]
-        jsonDecObjectSetGameStateOutputEvent = Set.fromList []
-    in  decodeSumTaggedObject "GameStateOutputEvent" "tag" "contents" jsonDecDictGameStateOutputEvent jsonDecObjectSetGameStateOutputEvent
+    in  decodeSumTwoElemArray  "GameStateOutputEvent" jsonDecDictGameStateOutputEvent
 
 jsonEncGameStateOutputEvent : GameStateOutputEvent -> Value
 jsonEncGameStateOutputEvent  val =
@@ -426,7 +420,7 @@ jsonEncGameStateOutputEvent  val =
                     GameEnded v1 v2 -> ("GameEnded", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, jsonEncEndCondition v2]))
                     GameAborted v1 -> ("GameAborted", encodeValue (jsonEncPlayerId v1))
                     GameCrashed  -> ("GameCrashed", encodeValue (Json.Encode.list identity []))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -458,6 +452,7 @@ jsonEncHistoricRoundState  val =
 
 type alias RoundsState  =
    { roundsRoles: (PlayersMap Role)
+   , roundsCurrentLeader: PlayerId
    , roundsLeadershipQueue: LeadershipQueue
    , roundsCurrent: CurrentRoundState
    , roundsFuture: (List RoundShape)
@@ -466,8 +461,9 @@ type alias RoundsState  =
 
 jsonDecRoundsState : Json.Decode.Decoder ( RoundsState )
 jsonDecRoundsState =
-   Json.Decode.succeed (\proundsRoles proundsLeadershipQueue proundsCurrent proundsFuture proundsHistoric -> {roundsRoles = proundsRoles, roundsLeadershipQueue = proundsLeadershipQueue, roundsCurrent = proundsCurrent, roundsFuture = proundsFuture, roundsHistoric = proundsHistoric})
+   Json.Decode.succeed (\proundsRoles proundsCurrentLeader proundsLeadershipQueue proundsCurrent proundsFuture proundsHistoric -> {roundsRoles = proundsRoles, roundsCurrentLeader = proundsCurrentLeader, roundsLeadershipQueue = proundsLeadershipQueue, roundsCurrent = proundsCurrent, roundsFuture = proundsFuture, roundsHistoric = proundsHistoric})
    |> required "roundsRoles" (jsonDecPlayersMap (jsonDecRole))
+   |> required "roundsCurrentLeader" (jsonDecPlayerId)
    |> required "roundsLeadershipQueue" (jsonDecLeadershipQueue)
    |> required "roundsCurrent" (jsonDecCurrentRoundState)
    |> required "roundsFuture" (Json.Decode.list (jsonDecRoundShape))
@@ -477,6 +473,7 @@ jsonEncRoundsState : RoundsState -> Value
 jsonEncRoundsState  val =
    Json.Encode.object
    [ ("roundsRoles", (jsonEncPlayersMap (jsonEncRole)) val.roundsRoles)
+   , ("roundsCurrentLeader", jsonEncPlayerId val.roundsCurrentLeader)
    , ("roundsLeadershipQueue", jsonEncLeadershipQueue val.roundsLeadershipQueue)
    , ("roundsCurrent", jsonEncCurrentRoundState val.roundsCurrent)
    , ("roundsFuture", (Json.Encode.list jsonEncRoundShape) val.roundsFuture)
@@ -503,8 +500,7 @@ jsonDecGameState =
             , ("Complete", Json.Decode.lazy (\_ -> Json.Decode.map3 Complete (Json.Decode.index 0 (jsonDecPlayersMap (jsonDecRole))) (Json.Decode.index 1 (jsonDecEndCondition)) (Json.Decode.index 2 (Json.Decode.list (jsonDecHistoricRoundState)))))
             , ("Aborted", Json.Decode.lazy (\_ -> Json.Decode.map Aborted (jsonDecPlayerId)))
             ]
-        jsonDecObjectSetGameState = Set.fromList []
-    in  decodeSumTaggedObject "GameState" "tag" "contents" jsonDecDictGameState jsonDecObjectSetGameState
+    in  decodeSumTwoElemArray  "GameState" jsonDecDictGameState
 
 jsonEncGameState : GameState -> Value
 jsonEncGameState  val =
@@ -515,7 +511,7 @@ jsonEncGameState  val =
                     FiringRound v1 v2 -> ("FiringRound", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, (Json.Encode.list jsonEncHistoricRoundState) v2]))
                     Complete v1 v2 v3 -> ("Complete", encodeValue (Json.Encode.list identity [(jsonEncPlayersMap (jsonEncRole)) v1, jsonEncEndCondition v2, (Json.Encode.list jsonEncHistoricRoundState) v3]))
                     Aborted v1 -> ("Aborted", encodeValue (jsonEncPlayerId v1))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -529,15 +525,14 @@ jsonDecGameEventData =
             [ ("GameEventChat", Json.Decode.lazy (\_ -> Json.Decode.map GameEventChat (jsonDecChatLine)))
             , ("GameEventOutput", Json.Decode.lazy (\_ -> Json.Decode.map GameEventOutput (jsonDecGameStateOutputEvent)))
             ]
-        jsonDecObjectSetGameEventData = Set.fromList []
-    in  decodeSumTaggedObject "GameEventData" "tag" "contents" jsonDecDictGameEventData jsonDecObjectSetGameEventData
+    in  decodeSumTwoElemArray  "GameEventData" jsonDecDictGameEventData
 
 jsonEncGameEventData : GameEventData -> Value
 jsonEncGameEventData  val =
     let keyval v = case v of
                     GameEventChat v1 -> ("GameEventChat", encodeValue (jsonEncChatLine v1))
                     GameEventOutput v1 -> ("GameEventOutput", encodeValue (jsonEncGameStateOutputEvent v1))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 
@@ -551,15 +546,14 @@ jsonDecNewGameEvent =
             [ ("NewGameEventChat", Json.Decode.lazy (\_ -> Json.Decode.map NewGameEventChat (Json.Decode.string)))
             , ("NewGameEventInput", Json.Decode.lazy (\_ -> Json.Decode.map NewGameEventInput (jsonDecGameStateInputEvent)))
             ]
-        jsonDecObjectSetNewGameEvent = Set.fromList []
-    in  decodeSumTaggedObject "NewGameEvent" "tag" "contents" jsonDecDictNewGameEvent jsonDecObjectSetNewGameEvent
+    in  decodeSumTwoElemArray  "NewGameEvent" jsonDecDictNewGameEvent
 
 jsonEncNewGameEvent : NewGameEvent -> Value
 jsonEncNewGameEvent  val =
     let keyval v = case v of
                     NewGameEventChat v1 -> ("NewGameEventChat", encodeValue (Json.Encode.string v1))
                     NewGameEventInput v1 -> ("NewGameEventInput", encodeValue (jsonEncGameStateInputEvent v1))
-    in encodeSumTaggedObject "tag" "contents" keyval val
+    in encodeSumTwoElementArray keyval val
 
 
 

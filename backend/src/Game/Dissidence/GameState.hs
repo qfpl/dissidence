@@ -127,7 +127,7 @@ inputEvent gs pId ev iEvMay = case gs of
   Rounds rs -> case (rs ^.roundsCurrentProposal) of
     NoProposal -> case ev of
       ProposeTeam ps ->
-        if pId /= (rs ^.roundsCurrentLeader) then throwing _PlayerIsNotLeader ()
+        if pId /= (rs ^.field @"roundsCurrentLeader") then throwing _PlayerIsNotLeader ()
         else if (Set.size ps) /= rs ^.roundsCurrentShape.field @"roundShapeTeamSize".to fromIntegral
           then throwing _IncorrectTeamSize ()
           else pure
@@ -140,18 +140,18 @@ inputEvent gs pId ev iEvMay = case gs of
 
     Proposed ps votes -> case ev of
       VoteOnTeam pass ->
-        let teamSansLeader = Map.delete (rs ^.roundsCurrentLeader) (rs ^. field @"roundsRoles")
+        let teamSansLeader = Map.delete (rs ^.field @"roundsCurrentLeader") (rs ^. field @"roundsRoles")
             newVotes = Map.insert pId pass votes
             passVotes = fromIntegral . length . filter id . Map.elems $ newVotes
             failVotes = fromIntegral . length . filter not . Map.elems $ newVotes
         in
-          if pId == rs ^.roundsCurrentLeader then throwing _LeaderCannotVoteOnTeam ()
+          if pId == rs ^.field @"roundsCurrentLeader" then throwing _LeaderCannotVoteOnTeam ()
           else if not (Map.member pId teamSansLeader) then throwing _PlayerNotInGame pId
           else if (Map.member pId votes) then throwing _DuplicateVote ()
           else if (Map.size newVotes < Map.size teamSansLeader)
             then pure (Rounds (rs & roundsCurrentProposal .~ Proposed ps newVotes), Nothing, Nothing)
             else
-              let newVoteHistory = TeamVotingResult (rs^.roundsCurrentLeader) ps newVotes
+              let newVoteHistory = TeamVotingResult (rs^.field @"roundsCurrentLeader") ps newVotes
               in
                 if (passVotes > failVotes)
                 then pure
@@ -170,13 +170,14 @@ inputEvent gs pId ev iEvMay = case gs of
                         roles = rs ^. field @"roundsRoles"
                     in pure (Complete roles ec roundHists, Nothing, Just $ GameEnded roles ec)
                   else do
-                    let newQueue = cycleLeadershipQueue (rs ^. field @"roundsLeadershipQueue")
+                    let newLeader = rs^.field @"roundsLeadershipQueue"._Wrapped.to NEL.head
                     pure ( Rounds $ rs
                       & roundsCurrentProposal .~ NoProposal
-                      & field @"roundsLeadershipQueue" .~ newQueue
+                      & field @"roundsCurrentLeader" .~ newLeader
+                      & field @"roundsLeadershipQueue" %~ cycleLeadershipQueue
                       & roundsCurrentVotes <>~ [newVoteHistory]
                       , Nothing
-                      , Just $ TeamRejected passVotes (NEL.head . unLeadershipQueue $ newQueue) -- TODO: This is iffy that we don't send the whole queue
+                      , Just $ TeamRejected passVotes newLeader
                       )
 
       AbortGame -> abortGame

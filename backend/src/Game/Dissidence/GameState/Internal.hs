@@ -103,6 +103,7 @@ instance IsElmDefinition LeadershipQueue where
 
 data RoundsState = RoundsState
   { roundsRoles           :: PlayersMap Role
+  , roundsCurrentLeader   :: PlayerId
   , roundsLeadershipQueue :: LeadershipQueue
   , roundsCurrent         :: CurrentRoundState
   , roundsFuture          :: [RoundShape]
@@ -110,8 +111,8 @@ data RoundsState = RoundsState
   } deriving (Eq, Show, Generic)
 deriveBoth ourAesonOptions ''RoundsState
 
-roundsCurrentLeader :: Getter RoundsState PlayerId
-roundsCurrentLeader = field @"roundsLeadershipQueue" . _Wrapped . to NEL.head
+roundsNextLeader :: Getter RoundsState PlayerId
+roundsNextLeader = field @"roundsLeadershipQueue" . _Wrapped . to NEL.head
 
 roundsCurrentShape :: Lens' RoundsState RoundShape
 roundsCurrentShape = field @"roundsCurrent" . field @"currentRoundShape"
@@ -249,7 +250,11 @@ initialRoundsState roles order = \case
   Players9  -> rss 3 4 4 5 5 True
   Players10 -> rss 3 4 4 5 5 True
   where
-    rss r1 r2 r3 r4 r5 b = RoundsState roles order (CurrentRoundState (rs r1 False) NoProposal [])
+    rss r1 r2 r3 r4 r5 b = RoundsState
+      roles
+      (NEL.head (unLeadershipQueue order))
+      (cycleLeadershipQueue order)
+      (CurrentRoundState (rs r1 False) NoProposal [])
       [(rs r2 False),(rs r3 False),(rs r4 b),(rs r5 False)]
       []
     rs n b = RoundShape n b

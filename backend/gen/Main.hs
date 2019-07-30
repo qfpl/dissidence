@@ -59,7 +59,7 @@ myElmOpts = defElmOptions
     , toElmType (Proxy @Token)
     , toElmType (Proxy @PlayerId)
     ]
-  , elmAlterations = Elm.defaultAlterations
+  , elmAlterations = traceShowId . Elm.defaultAlterations
   }
 
 myElmImports :: T.Text

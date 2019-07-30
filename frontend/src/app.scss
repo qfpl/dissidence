@@ -50,6 +50,17 @@ $med-fg: #76ee27;
 $warm-fg: #ec6f2b;
 $strong-fg: #eb3263;
 
+$char1:  #FF7F50;
+$char2:  #E0FFFF;
+$char3:  #DDA0DD;
+$char4:  #66CDAA;
+$char5:  #6495ED;
+$char6:  #00FFFF;
+$char7:  #FFEFD5;
+$char8:  #BC8F8F;
+$char9:  #FFA07A;
+$char10: #FFc0CB;
+
 h1, h2, h3, h4, h5 {
   font-family: "Anonymous_Pro", monospace;
   color: $light-fg;
@@ -154,6 +165,10 @@ a {
     p {
       margin: 0.2em;
       font-family: $mono-family;
+    }
+    .chat-event {
+      font-style: italic;
+      color: $med-fg;
     }
   }
 
