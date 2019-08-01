@@ -5,6 +5,7 @@ import Browser.Navigation as Nav
 import Generated.Api as BE
 import Html as H
 import Html.Attributes as HA
+import Html.Attributes.Aria as HAA
 import Html.Events as HE
 import Http
 import Page
@@ -158,6 +159,7 @@ view model =
                     [ HA.placeholder "Player ID"
                     , HE.onInput SetPlayerId
                     , HA.value model.playerId
+                    , HAA.ariaLabel "Player ID"
                     ]
                     []
                 , H.input
@@ -165,6 +167,7 @@ view model =
                     , HA.type_ "password"
                     , HE.onInput SetPassword
                     , HA.value model.password
+                    , HAA.ariaLabel "Password"
                     ]
                     []
                 , H.input
@@ -172,6 +175,7 @@ view model =
                     , HA.type_ "password"
                     , HE.onInput SetPasswordAgain
                     , HA.value model.passwordAgain
+                    , HAA.ariaLabel "Confirm Password"
                     ]
                     []
                 , H.ul [ HA.class "warn" ]

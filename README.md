@@ -3,8 +3,6 @@
 This code is mostly an education tool to show a non trivial Elm + Haskell application in a fun setting. The aim is to 
 show that fullstack functional web dev is both practical and powerful. 
 
-TODO: Add screenshots later and tidy up words to make this easier to understand.
-
 This is a simple social game where there are two competing factions:
 
 - Compositonal Crusaders: Whose aim is to improve their projects by voting to write their projects using functional 
@@ -21,20 +19,20 @@ team composition need not actually include the team lead but must win a public m
 the round progresses to the secret ballot to approve it as an FP project or not. If the team was not approved, then the 
 team-lead role moves clockwise around the table and we retry.
 
-Any player may say anything during the game so long as it is public. The aim of the crusaders game is to deduce who the 
+Any player may say anything during the game so long as it is public (in the chat box). The aim of the crusaders game is to deduce who the 
 sabotuers are and avoid putting them on projects so that the projects can succeed. The side-effects need to torpedo the
 move to FP without giving themselves away so they are not excluded from future projects.
 
 There are two special roles, one for each faction:
 - FP Expert: This person is part of the crusaders and knows FP enough that they can tell who the sabotuers are.
-- The Pointy Haired Boss: Part of the side-effects. At the end of the game if the crusaders have won, this person has one
+- FP Hating Boss: Part of the side-effects. At the end of the game if the crusaders have won, this person has one
   chance to fire a member of the team. If that person is the FP expert, the side-effects win and FP is lost forever. *sadface*
 
 In this sense, it's important for the expert to not give themselves away. 
 
 
-*This obviously supposed to be super satirical and not a reflection of real life in any way. We very much hope that your 
-actual work and FP transformation is much more friendly/positive and less adversarial/sneaky.* :joy:
+*This obviously supposed to be highly farcical and not a reflection of real life in any way. We very much hope that your 
+actual work and FP transformation is much more friendly/positive, less adversarial/sneaky and without a bus factor of 1.* :joy:
 
 This may remind you of a very awesome board game that we have avoided references to so that we don't tread on their 
 copyrights and so no one actually plays this instead of buying the real game. It's much more difficult and fun when you 
