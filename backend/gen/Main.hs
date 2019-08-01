@@ -20,6 +20,7 @@ import Debug.Trace
 import Game.Dissidence
 import Game.Dissidence.Db
 import Game.Dissidence.GameState
+import Game.Dissidence.ViewState
 
 instance IsElmDefinition Token where
   compileElmDef _ = ETypePrimAlias (EPrimAlias (ETypeName "Token" []) (ETyCon (ETCon "String")))
@@ -119,19 +120,20 @@ main =
     , DefineElm (Proxy :: Proxy SideEffectWinCondition)
     , DefineElm (Proxy :: Proxy EndCondition)
     , DefineElm (Proxy :: Proxy RoundShape)
-    , DefineElm (Proxy :: Proxy ProposalState)
+    , DefineElm (Proxy :: Proxy ViewStateProposalState)
     , DefineElm (Proxy :: Proxy TeamVotingResult)
     , DefineElm (Proxy :: Proxy RoundResult)
-    , DefineElm (Proxy :: Proxy CurrentRoundState)
+    , DefineElm (Proxy :: Proxy ViewStateCurrentRoundState)
     , DefineElm (Proxy :: Proxy GameStateInputEvent)
-    , DefineElm (Proxy :: Proxy GameStateOutputEvent)
     , DefineElm (Proxy :: Proxy HistoricRoundState)
-    , DefineElm (Proxy :: Proxy RoundsState)
-    , DefineElm (Proxy :: Proxy GameState)
-    , DefineElm (Proxy :: Proxy GameEventData)
-    , DefineElm (Proxy :: Proxy NewGameEvent)
-    , DefineElm (Proxy :: Proxy GameEvent)
+    , DefineElm (Proxy :: Proxy ViewRoundsState)
+    , DefineElm (Proxy :: Proxy CensoredRole)
+    , DefineElm (Proxy :: Proxy ViewState)
+    , DefineElm (Proxy :: Proxy DbViewState)
+    , DefineElm (Proxy :: Proxy ViewStateEventData)
+    , DefineElm (Proxy :: Proxy ViewStateOutputEvent)
+    , DefineElm (Proxy :: Proxy NewViewStateEvent)
+    , DefineElm (Proxy :: Proxy ViewStateEvent)
     , DefineElm (Proxy :: Proxy DbPlayer)
-    , DefineElm (Proxy :: Proxy DbGameState)
     ]
     (Proxy :: Proxy Api)

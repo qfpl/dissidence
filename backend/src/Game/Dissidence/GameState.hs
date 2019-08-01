@@ -41,6 +41,7 @@ import           Data.Text                (Text)
 
 import Game.Dissidence.GameState.Internal
 
+
 toGameStateType :: GameState -> Text
 toGameStateType = \case
   WaitingForPlayers _ _ -> "waiting_for_players"
@@ -86,8 +87,9 @@ inputEvent gs pId ev iEvMay = case gs of
                   (Set.toList allPlayersSet)
                   roles
 
+
             pure
-              ( Pregame rolesMap Map.empty
+              ( Pregame rolesMap (fmap (const False) rolesMap)
               , Just $ AssignRoles rolesMap
               , Just $ PregameStarted rolesMap
               )
@@ -102,7 +104,7 @@ inputEvent gs pId ev iEvMay = case gs of
         let newConfirms = Map.insert pId True confirms
         in
           if (Map.size roles > length (filter id (Map.elems newConfirms)))
-          then pure (Pregame roles newConfirms, Nothing, Just PlayerConfirmed)
+          then pure (Pregame roles newConfirms, Nothing, Just $ PlayerConfirmed pId)
           else case (playersCount (Map.size newConfirms)) of
             Nothing   -> throwing _GameStateTerminallyInvalid ()
             (Just pc) -> do
@@ -215,6 +217,7 @@ inputEvent gs pId ev iEvMay = case gs of
                       ( Rounds $ rs
                         & field @"roundsHistoric" .~ histRounds
                         & field @"roundsCurrent" .~ (CurrentRoundState s NoProposal [])
+                        & field @"roundsCurrentLeader" .~ (rs ^. roundsNextLeader)
                         & field @"roundsLeadershipQueue" %~ cycleLeadershipQueue
                       , Nothing
                       , Just $ NextRound (not failed) fails

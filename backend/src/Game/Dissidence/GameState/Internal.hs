@@ -160,7 +160,7 @@ data GameStateOutputEvent
   = PlayerAdded PlayerId
   | PlayerRemoved PlayerId
   | PregameStarted (PlayersMap Role)
-  | PlayerConfirmed  -- Lets not say who because the timing could give away info
+  | PlayerConfirmed PlayerId
   | RoundsCommenced RoundsState
   | TeamProposed (Set PlayerId)
   | TeamApproved Natural

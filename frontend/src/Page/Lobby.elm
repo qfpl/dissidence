@@ -162,7 +162,7 @@ update key player msg model =
 
         JoinGame gId ->
             ( { model | joinGameSubmission = RemoteData.Loading }
-            , BE.postApiGamesByGameIdEvents player.token gId (BE.NewGameEventInput BE.AddPlayer) (Page.wrapChildMsg (HandleJoinResp gId))
+            , BE.postApiGamesByGameIdEvents player.token gId (BE.NewViewStateEventInput BE.AddPlayer) (Page.wrapChildMsg (HandleJoinResp gId))
             )
 
         HandleJoinResp gId r ->
@@ -219,37 +219,40 @@ view player model =
     { title = "Dissidence - Lobby"
     , body =
         [ Page.logoutView player
-        , H.div [ HA.class "chatbox-container" ]
-            [ H.h1 [] [ H.text "Lobby" ]
-            , H.div [ HA.id "chatbox", HA.class "chatbox" ] (List.map chatLineView model.chatLines)
-            , H.form [ HE.onSubmit (Page.ChildMsg SubmitNewLine) ]
-                [ H.ul []
-                    [ H.li [ HA.class "chat-message" ]
-                        [ H.input
-                            [ HA.placeholder "type a chat message"
-                            , HE.onInput (Page.wrapChildMsg SetNewLine)
-                            , HA.value model.newChatLine
-                            , HA.class "chat-message-input"
-                            , HAA.ariaLabel "Enter Chat Message"
+        , H.div [ HA.class "lobby" ]
+            [ H.div [ HA.class "lobby-games" ]
+                [ H.h1 [] [ H.text "Lobby" ]
+                , H.ul [] (List.map joinableGame model.joinableGames)
+                , H.button [ HA.class "btn friendly", HE.onClick (Page.ChildMsg MakeNewGame) ] [ H.text "New Game" ]
+                ]
+            , H.div [ HA.class "chatbox-container" ]
+                [ H.h2 [] [ H.text "Chat Lobby" ]
+                , H.div [ HA.id "chatbox", HA.class "chatbox" ] (List.map chatLineView model.chatLines)
+                , H.form [ HE.onSubmit (Page.ChildMsg SubmitNewLine) ]
+                    [ H.ul []
+                        [ H.li [ HA.class "chat-message" ]
+                            [ H.input
+                                [ HA.placeholder "type a chat message"
+                                , HE.onInput (Page.wrapChildMsg SetNewLine)
+                                , HA.value model.newChatLine
+                                , HA.class "chat-message-input"
+                                , HAA.ariaLabel "Enter Chat Message"
+                                ]
+                                []
                             ]
-                            []
+                        , H.li []
+                            [ H.button
+                                [ HA.class "btn primary", disabledIfLoading model.newLineSubmission ]
+                                [ H.text "send" ]
+                            ]
+                        , let
+                            errorsMay =
+                                NEL.fromList (maybeToList (remoteDataError model.newLineSubmission) ++ model.validationIssues)
+                          in
+                          Utils.maybe (H.text "") chatWarnings errorsMay
                         ]
-                    , H.li []
-                        [ H.button
-                            [ HA.class "btn primary", disabledIfLoading model.newLineSubmission ]
-                            [ H.text "send" ]
-                        ]
-                    , let
-                        errorsMay =
-                            NEL.fromList (maybeToList (remoteDataError model.newLineSubmission) ++ model.validationIssues)
-                      in
-                      Utils.maybe (H.text "") chatWarnings errorsMay
                     ]
                 ]
-            ]
-        , H.div []
-            [ H.ul [] (List.map joinableGame model.joinableGames)
-            , H.button [ HE.onClick (Page.ChildMsg MakeNewGame) ] [ H.text "New Game" ]
             ]
         ]
     }
@@ -259,7 +262,8 @@ joinableGame : BE.JoinableGame -> H.Html PageMsg
 joinableGame g =
     H.li []
         [ H.text ("Game " ++ String.fromInt g.joinableGameId ++ " (" ++ String.fromInt g.playerCount ++ "/10)")
-        , H.button [ HE.onClick (Page.ChildMsg (JoinGame g.joinableGameId)) ] [ H.text "Join" ]
+        , H.text " "
+        , H.button [ HA.class "btn friendly", HE.onClick (Page.ChildMsg (JoinGame g.joinableGameId)) ] [ H.text "Join" ]
         ]
 
 

@@ -31,7 +31,11 @@ wrapChildMsg f =
 
 logoutView : Session.Player -> H.Html (SubMsg a)
 logoutView player =
-    H.p [ HA.class "logged-in" ]
-        [ H.text ("Logged in as " ++ player.playerId ++ ".")
-        , H.button [ HA.class "logout", HE.onClick (ParentMsg Logout) ] [ H.text "logout" ]
+    H.div [ HA.class "logged-in" ]
+        [ H.div [ HA.class "logged-in-left" ] [ Route.routeLink Route.Lobby [ H.text "Lobby" ] ]
+        , H.div [ HA.class "logged-in-right" ]
+            [ H.text player.playerId
+            , H.text " "
+            , H.button [ HA.class "btn", HE.onClick (ParentMsg Logout) ] [ H.text "logout" ]
+            ]
         ]

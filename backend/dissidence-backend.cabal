@@ -23,6 +23,7 @@ library
                    , Game.Dissidence.Db
                    , Game.Dissidence.GameState
                    , Game.Dissidence.GameState.Internal
+                   , Game.Dissidence.ViewState
   other-modules:     Game.Dissidence.AesonOptions
                    , Game.Dissidence.Config
                    , Game.Dissidence.Env
@@ -42,6 +43,7 @@ library
                      , rvar
                      , random-fu
                      , random-source
+                     , safe
                      , servant
                      , servant-elm
                      , servant-server
@@ -52,6 +54,7 @@ library
                      , sqlite-simple-errors
                      , text
                      , time
+                     , transformers
                      , vector
                      , warp
                      , wai-cors

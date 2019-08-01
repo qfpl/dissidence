@@ -93,7 +93,7 @@ waitingForPlayersTests = testGroup "Waiting For Players" $
         (natToPId 1)
         StartGame
         (Right
-          (Pregame expectedRoles Map.empty
+          (Pregame expectedRoles (Map.fromList $ zip (player1 : (take 4 players)) (repeat False))
           , Just $ AssignRoles expectedRoles
           , Just $ PregameStarted expectedRoles
         ))
@@ -123,7 +123,7 @@ pregameTests = testGroup "Pregame" $
       (Right
         ( Pregame roles (Map.singleton (natToPId 1) True)
         , Nothing
-        , Just $ PlayerConfirmed ))
+        , Just $ PlayerConfirmed (natToPId 1)))
   , testCase "Confirming all players starts game" $
     inputsTest (Pregame roles Map.empty) ((,ConfirmOk) . natToPId <$> 1 :| [2..5]) $ Right
       ( Rounds roundsState

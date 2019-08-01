@@ -13,13 +13,12 @@ import           Control.Monad.Reader                 (MonadReader, ReaderT, run
 import           Crypto.JOSE                          (Error)
 import           Data.Aeson                           (FromJSON, ToJSON, encode)
 import qualified Data.ByteString.Lazy.Char8           as LC8
-import           Data.Foldable                        (fold)
 import           Data.Generics.Product                (field)
-import           Data.List                            (sortOn)
-import           Data.Maybe                           (isNothing, mapMaybe)
+import           Data.Maybe                           (fromMaybe, isNothing)
 import           Data.Random                          ()
 import           Data.Random.Internal.Source          (MonadRandom (getRandomPrim))
 import           Data.Text                            (Text)
+import qualified Data.Text                            as T
 import qualified Data.Text.Lazy                       as TL
 import qualified Data.Text.Lazy.Encoding              as TL
 import           GHC.Generics                         (Generic)
@@ -27,37 +26,25 @@ import           Network.Wai.Handler.Warp             (run)
 import           Network.Wai.Middleware.Cors          (cors, corsOrigins, corsRequestHeaders,
                                                        simpleCorsResourcePolicy)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
+import           Safe                                 (headMay)
 import           Servant
 import           Servant.Auth.Server
-import           Servant.Elm                          (deriveBoth)
+import           System.Environment                   (getArgs)
 
-import Game.Dissidence.AesonOptions (ourAesonOptions)
-import Game.Dissidence.Config       (load)
-import Game.Dissidence.Db           (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
-                                     DbConstraints, DbError (..), DbGameState, DbLogicError (..), DbPlayer,
-                                     GameId (..), JoinableGame, NewChatLine (..), NewDbGameState (..),
-                                     NewDbGameStateEvent (..), Posix, checkLogin, findPlayer, initDb,
-                                     insertChatLine, insertGameState, insertGameStateEvent, insertPlayer,
-                                     listGameStateEvents, listJoinableGames, selectChatLines, selectGameState,
-                                     updateGameState)
-import Game.Dissidence.Env          (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath,
-                                     envJwtSettings, withEnvDbConnection)
-import Game.Dissidence.GameState    (AsGameStateInputError (..), GameStateInputError, GameStateInputEvent,
-                                     GameStateOutputEvent, PlayerId, inputEvent, newGame)
-
-data NewGameEvent = NewGameEventChat Text | NewGameEventInput GameStateInputEvent deriving (Generic, Show)
-deriveBoth ourAesonOptions ''NewGameEvent
-
-data GameEventData = GameEventChat ChatLine | GameEventOutput GameStateOutputEvent deriving (Generic, Show)
-deriveBoth ourAesonOptions ''GameEventData
-
-data GameEvent = GameEvent
-  { gameEventTime   :: Posix
-  , gameEventPlayer :: PlayerId
-  , gameEventData   :: GameEventData
-  } deriving (Generic, Show)
-
-deriveBoth ourAesonOptions ''GameEvent
+import Game.Dissidence.Config    (load)
+import Game.Dissidence.Db        (AsDbError (..), AsDbLogicError (..), AsSQLiteResponse (..), ChatLine,
+                                  DbConstraints, DbError (..), DbLogicError (..), DbPlayer, GameId (..),
+                                  JoinableGame, NewChatLine (..), NewDbGameState (..),
+                                  NewDbGameStateEvent (..), Posix, checkLogin, findPlayer, initDb,
+                                  insertChatLine, insertGameState, insertGameStateEvent, insertPlayer,
+                                  listGameStateEvents, listJoinableGames, selectChatLines, selectGameState,
+                                  updateGameState)
+import Game.Dissidence.Env       (Env, EnvWConnection, configToEnv, envCookieSettings, envDbPath,
+                                  envJwtSettings, withEnvDbConnection)
+import Game.Dissidence.GameState (AsGameStateInputError (..), GameStateInputError, PlayerId, inputEvent,
+                                  newGame)
+import Game.Dissidence.ViewState (DbViewState, NewViewStateEvent (..), ViewStateEvent, gameEventsToViewEvents,
+                                  gameStateToViewState)
 
 data AppError
   = AppJwtMisconfiguration Error
@@ -110,6 +97,12 @@ runAppM' m e = flip runReaderT e . runExceptT . unAppM $ m
 instance MonadRandom (AppM' e) where
   getRandomPrim = liftIO . getRandomPrim
 
+data Session = Session { playerId :: PlayerId } deriving Generic
+instance ToJSON Session
+instance FromJSON Session
+instance ToJWT Session
+instance FromJWT Session
+
 type ChatApi = Auth '[JWT] Session :>
   (    QueryParam "since" Posix :> Get '[JSON] [ChatLine]
   :<|> ReqBody '[JSON] Text :> Post '[JSON] ()
@@ -118,10 +111,10 @@ type ChatApi = Auth '[JWT] Session :>
 type GameApi
   = Auth '[JWT] Session :>
     ( Capture "gameId" GameId :>
-      (    Get '[JSON] DbGameState
+      (    Get '[JSON] DbViewState
       :<|> "events" :>
-        (    QueryParam "since" Posix :> Get '[JSON] [GameEvent]
-        :<|> ReqBody '[JSON] NewGameEvent :> Post '[JSON] ()
+        (    QueryParam "since" Posix :> Get '[JSON] [ViewStateEvent]
+        :<|> ReqBody '[JSON] NewViewStateEvent :> Post '[JSON] ()
         )
       )
     :<|> Post '[JSON] GameId
@@ -141,11 +134,6 @@ type Api = "api" :>
   :<|> "login" :> LoginApi
   )
 
-data Session = Session { playerId :: PlayerId } deriving Generic
-instance ToJSON Session
-instance FromJSON Session
-instance ToJWT Session
-instance FromJWT Session
 
 sessionToJwt :: (MonadError e m, AsAppError e, MonadIO m) => JWTSettings -> Session -> m String
 sessionToJwt jwtS s = do
@@ -193,37 +181,31 @@ chatAppend authRes gIdMay t = do
   (Session pId) <- checkSession authRes
   insertChatLine (NewChatLine gIdMay pId t)
 
-gameGet :: AppConstraints e r m => AuthRes -> GameId -> m DbGameState
-gameGet authRes gId = checkSession authRes *> selectGameState gId
+gameGet :: AppConstraints e r m => AuthRes -> GameId -> m DbViewState
+gameGet authRes gId = do
+  (Session pId) <- checkSession authRes
+  dbGs <- selectGameState gId
+  gameStateToViewState pId dbGs
 
-gameUpdate :: AppConstraints e r m => AuthRes -> GameId -> NewGameEvent -> m ()
+gameUpdate :: AppConstraints e r m => AuthRes -> GameId -> NewViewStateEvent -> m ()
 gameUpdate authRes gId inputE  = do
   (Session pId) <- checkSession authRes
   -- TODO THIS NEEDS A TRANSACTTION!!!
   gs <- selectGameState gId
   case inputE of
-    NewGameEventChat nct -> do
+    NewViewStateEventChat nct -> do
       insertChatLine (NewChatLine (Just gId) pId nct)
-    NewGameEventInput gsi -> do
+    NewViewStateEventInput gsi -> do
       (nGs,internalE,outputE) <- inputEvent (gs ^. field @"dbGameState") pId gsi Nothing
       updateGameState (gs & field @"dbGameState" .~ nGs)
       insertGameStateEvent (NewDbGameStateEvent gId pId gsi internalE outputE)
 
-gameLogs :: AppConstraints e r m => AuthRes -> GameId -> Maybe Posix -> m [GameEvent]
+gameLogs :: AppConstraints e r m => AuthRes -> GameId -> Maybe Posix -> m [ViewStateEvent]
 gameLogs authRes gId sinceMay = do
-  (Session _pId) <- checkSession authRes
-  -- TODO: Censor events
+  (Session pId) <- checkSession authRes
   gses <- listGameStateEvents gId sinceMay
   cls  <- selectChatLines sinceMay (Just gId)
-  pure . sortOn (^.field @"gameEventTime") . fold $
-    [ (\cl -> GameEvent (cl ^. field @"chatLineTime") (cl ^. field @"chatLinePlayerId") (GameEventChat cl)) <$> cls
-    , mapMaybe (\gse ->
-        (gse ^?
-          field @"dbGameStateEventOutput"
-          ._Just.to (GameEvent (gse^.field @"dbGameStateEventTime") (gse^.field @"dbGameStatePlayerId") . GameEventOutput)
-          )
-        ) gses
-    ]
+  gameEventsToViewEvents pId cls gses
 
 gameNew :: AppConstraints e r m => AuthRes -> m GameId
 gameNew authRes = do
@@ -268,7 +250,9 @@ appHandler e prog = do
 
 runApp :: IO ()
 runApp = do
-  c  <- load "./config" -- TODO: Opts for path
+  args <- getArgs
+  let path = fromMaybe "./config" $ headMay args
+  c  <- load (T.pack path)
   e  <- configToEnv c
   putStrLn $ "Opening/Initialising sqlite database " <> (e ^.envDbPath)
   initRes <- runDbContext e initDb

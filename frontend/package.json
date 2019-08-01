@@ -2,9 +2,7 @@
   "scripts": {
     "dev": "parcel src/index.html",
     "build": "parcel build src/index.html",
-    "rundist": "cd dist && ws --spa index.html",
-    "argh": "parcel argh/index.html",
-    "arghbuild": "parcel build argh/index.html"
+    "rundist": "cd dist && ws --spa index.html"
   },
   "devDependencies": {
     "elm-hot": "^1.1.0",

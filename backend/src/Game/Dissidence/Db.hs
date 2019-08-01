@@ -18,6 +18,7 @@ module Game.Dissidence.Db
   , ChatLine
   , NewChatLine(..)
   , DbGameState
+  , DbGameStateEvent
   , JoinableGame(..)
   , NewDbGameState(..)
   , NewDbGameStateEvent(..)
@@ -281,7 +282,7 @@ initDb =
     safeInsertPlayer pt = do
       let pId = PlayerId pt
       pMay <- findPlayer pId
-      unless (isJust pMay) $ insertPlayer (DbPlayer pId "butts")
+      unless (isJust pMay) $ insertPlayer (DbPlayer pId "pass")
   in do
     withConnIO $ \conn ->
       traverse_ (execute_ conn)
@@ -291,11 +292,11 @@ initDb =
         , qChatLines
         , qPlayer
         ]
-    safeInsertPlayer "ben1"
-    safeInsertPlayer "ben2"
-    safeInsertPlayer "ben3"
-    safeInsertPlayer "ben4"
-    safeInsertPlayer "ben5"
+    safeInsertPlayer "user1"
+    safeInsertPlayer "user2"
+    safeInsertPlayer "user3"
+    safeInsertPlayer "user4"
+    safeInsertPlayer "user5"
     pure ()
 
 insert ::

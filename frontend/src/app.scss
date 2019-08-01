@@ -107,7 +107,10 @@ body {
   padding: 0.2em;
 
   &.scary {
-    @include btn($primary-color-light, $strong-fg)
+    @include btn($bg-dark, $strong-fg)
+  }
+  &.friendly {
+    @include btn($bg-dark, $med-fg)
   }
 
   &.primary {
@@ -133,6 +136,55 @@ a {
   }
   &:visited {
     color: $light-fg;
+  }
+}
+
+.lobby {
+  display: flex;
+  flex-direction: row;
+  @media screen and (max-width: $small-screen) {
+    flex-wrap: wrap;
+  } 
+
+  .lobby-games {
+    margin-bottom: 1em;
+    @media screen and (min-width: $small-screen) {
+      flex-grow: 2;
+    }
+    @media screen and (max-width: $small-screen) {
+      width: 100%;
+    }
+  }
+  .chatbox {
+    @media screen and (max-width: $small-screen) {
+      height: 10em;
+    }
+  }
+  .chatbox-container {
+    @media screen and (max-width: $small-screen) {
+      width: 100%;
+    }
+  }
+}
+
+
+.logged-in {
+  position: sticky;
+  top: 0;
+  display: flex;
+  margin-top: -10px;
+  margin-left: -10px;
+  margin-right: -10px;
+  background: $bg-light;
+  padding: 0.4em;
+
+  .logged-in-left {
+    flex-grow: 2;
+    margin-top: 0.5em;
+  }
+  .logged-in-right {
+    text-align: right;
+    margin-top: 0.1em;
   }
 }
 
@@ -200,7 +252,9 @@ a {
 .game-page {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
+  @media screen and (max-width: $small-screen) {
+    flex-wrap: wrap;
+  } 
   .game-state {
     @media screen and (min-width: $small-screen) {
       flex-grow: 2;
