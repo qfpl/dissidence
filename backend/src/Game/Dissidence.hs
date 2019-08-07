@@ -263,6 +263,6 @@ runApp = do
       putStrLn $ "Starting server on port " <> (show port)
       let corsPolicy = simpleCorsResourcePolicy
             { corsRequestHeaders = ["content-type","authorization"]
-            , corsOrigins = Just (["http://localhost:1234"], True)
+            , corsOrigins = Just (["http://localhost:1234","http://localhost:1235"], True)
             }
       run port . cors (const (Just corsPolicy)) . logStdoutDev . app $ e
