@@ -1,0 +1,1 @@
+nix build -f docker.nix && docker load < result && docker login && docker push benkolera/dissidence-backend
