@@ -10,7 +10,7 @@ let
   '';
   dockerImage =
     nixpkgs.pkgs.dockerTools.buildImage {
-      name = "benkolera/dissidence-backend";
+      name = "qfpl/dissidence-backend";
       tag = "latest";
       fromImage = nixpkgs.pkgs.dockerTools.pullImage {
           imageName = "alpine";
